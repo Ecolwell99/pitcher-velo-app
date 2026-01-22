@@ -7,7 +7,6 @@ st.title("⚾ Pitcher Avg Velocity by Count & Batter Handedness (2025)")
 with st.sidebar:
     st.header("Inputs")
     pitcher = st.text_input("Pitcher name (First Last)", "Gerrit Cole")
-    season = 2025
     min_pitches = st.number_input(
         "Minimum pitches per row",
         min_value=1,
@@ -24,35 +23,39 @@ if run:
 
     first, last = pitcher.strip().split(" ", 1)
 
-    with st.spinner("Pulling Statcast data (first run may take ~30 seconds)..."):
+    with st.spinner("Pulling Statcast data..."):
         try:
-            df = get_pitcher_data(first, last, season)
+            df = get_pitcher_data(first, last, 2025)
         except Exception as e:
             st.error(str(e))
             st.stop()
 
     if df.empty:
-        st.warning("No data returned for this pitcher/season.")
+        st.warning("No data returned for this pitcher.")
         st.stop()
 
+    # Build avg velocity by count & batter handedness
     result = (
-        df.groupby(["stand", "count", "pitch_name"])
+        df.groupby(["stand", "count"])
           .agg(
               avg_velocity=("release_speed", "mean"),
-              pitches=("release_speed", "count"),
+              pitches=("release_speed", "count")
           )
           .reset_index()
     )
 
+    # Apply minimum pitch filter
     result = result[result["pitches"] >= min_pitches]
+
+    # Format for display
     result["avg_velocity"] = result["avg_velocity"].round(1)
-
-    result = result.sort_values(
-        ["stand", "count", "avg_velocity"],
-        ascending=[True, True, False],
-    )
-
     result["stand"] = result["stand"].map({"R": "vs RHB", "L": "vs LHB"})
+
+    # Sort for readability
+    result = result.sort_values(
+        ["stand", "count"],
+        ascending=[True, True]
+    )
 
     st.subheader("Results")
     st.dataframe(result, use_container_width=True)
