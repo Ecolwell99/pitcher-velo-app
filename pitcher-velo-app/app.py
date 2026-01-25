@@ -5,9 +5,9 @@ from data import get_pitcher_data
 # -----------------------------
 # Page setup
 # -----------------------------
-st.set_page_config(page_title="Pitcher Velocity by Count", layout="wide")
-st.title("⚾ Pitcher Avg Velocity by Count (vs LHB / vs RHB)")
-st.caption("Public Statcast data • 2025 season • % over pitch-type avg MPH")
+st.set_page_config(page_title="Pitcher Velocity Bias by Count", layout="wide")
+st.title("⚾ Pitcher Velocity Bias by Count (vs LHB / vs RHB)")
+st.caption("Public Statcast data • 2025 season • Exact MPH • Over / Under framing")
 
 # -----------------------------
 # Sidebar inputs
@@ -51,30 +51,46 @@ if df.empty:
     st.stop()
 
 # -----------------------------
-# Pitch-type-specific baselines
+# Helper: velocity bias per group
 # -----------------------------
-pitch_type_avg = (
-    df.groupby("pitch_name", dropna=False)["release_speed"]
-      .mean()
-      .to_dict()
-)
+def velocity_bias(group: pd.DataFrame):
+    """
+    For a (count, handedness) group:
+    - Find modal velocity (exact decimal)
+    - Find max velocity
+    - If modal == max:
+        % Over modal (>=)
+    - Else:
+        % Under max (<)
+    """
+    speeds = group["release_speed"]
 
-# Tag each pitch: over its pitch-type avg
-df["over_pitch_avg"] = df.apply(
-    lambda r: 1 if r["release_speed"] > pitch_type_avg.get(r["pitch_name"], r["release_speed"]) else 0,
-    axis=1,
-)
+    # Modal velocity (most frequent exact value)
+    mode_val = speeds.value_counts().idxmax()
+    mode_freq = (speeds >= mode_val).mean()  # used only if mode == max
+
+    max_val = speeds.max()
+    max_freq = (speeds >= max_val).mean()
+
+    if mode_val == max_val:
+        pct = (speeds >= mode_val).mean()
+        label = f"{int(round(pct * 100))}% Over {mode_val:.1f}"
+    else:
+        pct = 1 - max_freq
+        label = f"{int(round(pct * 100))}% Under {max_val:.1f}"
+
+    return pd.Series({
+        "avg_velocity": speeds.mean(),
+        "velocity_bias": label,
+        "pitches": len(group),
+    })
 
 # -----------------------------
 # Aggregate by count & handedness
 # -----------------------------
 result = (
     df.groupby(["stand", "count"])
-      .agg(
-          avg_velocity=("release_speed", "mean"),
-          pct_over_pitch_avg=("over_pitch_avg", "mean"),
-          pitches=("over_pitch_avg", "count"),
-      )
+      .apply(velocity_bias)
       .reset_index()
 )
 
@@ -87,7 +103,6 @@ if result.empty:
 
 # Formatting
 result["avg_velocity"] = result["avg_velocity"].round(1)
-result["pct_over_pitch_avg"] = (result["pct_over_pitch_avg"] * 100).round(0).astype(int)
 result["stand"] = result["stand"].map({"R": "vs RHB", "L": "vs LHB"})
 
 # Sort counts logically (0-0 → 3-2)
@@ -122,4 +137,3 @@ with col2:
         st.info("No data vs RHB.")
     else:
         st.dataframe(vs_rhb, use_container_width=True)
-
