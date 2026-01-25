@@ -126,6 +126,8 @@ with col1:
 
 with col2:
     st.markdown("### 🟦 vs Right-Handed Batters")
-    if v
-
+    if vs_rhb.empty:
+        st.info("No data vs RHB.")
+    else:
+        st.dataframe(vs_rhb, use_container_width=True)
 
