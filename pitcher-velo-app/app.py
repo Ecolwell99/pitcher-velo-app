@@ -7,15 +7,15 @@ from data import get_pitcher_data
 # =============================
 st.set_page_config(page_title="Pitcher Matchup Velocity Bias", layout="wide")
 st.title("⚾ Pitcher Matchup — Velocity Bias by Count")
-st.caption("Public Statcast data • 2025 season • Bias uses TOP pitch-type AVG MPH per count")
+st.caption("Public Statcast data • 2025 season • Anchor = season top pitch-type AVG MPH")
 
 # =============================
 # Sidebar inputs
 # =============================
 with st.sidebar:
     st.header("Pitchers")
-    away_pitcher = st.text_input("Away Pitcher (First Last)", "Gerrit Cole")
-    home_pitcher = st.text_input("Home Pitcher (First Last)", "Corbin Burnes")
+    away_pitcher = st.text_input("Away Pitcher (First Last)", "Yoshinobu Yamamoto")
+    home_pitcher = st.text_input("Home Pitcher (First Last)", "Gerrit Cole")
 
     st.divider()
 
@@ -37,43 +37,6 @@ def parse_name(name: str):
         return None, None
     return name.strip().split(" ", 1)
 
-def top_pitch_avg_bias(group: pd.DataFrame) -> pd.Series:
-    """
-    For a (stand, count) group:
-    - Compute avg MPH per pitch type in this count
-    - Anchor MPH = highest pitch-type avg MPH
-    - Usage = % of pitches that are that pitch type (tie-safe)
-    - If usage >= 50% -> "X% OVER anchor"
-      else            -> "(100-X)% UNDER anchor"
-    """
-    avg_velocity = float(group["release_speed"].mean())
-
-    # Avg MPH by pitch type
-    pitch_avg = group.groupby("pitch_name")["release_speed"].mean()
-
-    # Anchor MPH (top pitch-type avg)
-    top_mph = float(pitch_avg.max())
-
-    # Pitch types that share that top avg (tie-safe)
-    top_pitch_types = set(pitch_avg[pitch_avg == top_mph].index.tolist())
-
-    # Usage of those pitch types
-    top_usage = float(group["pitch_name"].isin(top_pitch_types).mean())
-
-    top_usage_pct = round(top_usage * 100, 1)
-    under_pct = round((1 - top_usage) * 100, 1)
-
-    if top_usage >= 0.5:
-        bias = f"{top_usage_pct}% OVER {top_mph:.1f}"
-    else:
-        bias = f"{under_pct}% UNDER {top_mph:.1f}"
-
-    return pd.Series({
-        "avg_velocity": avg_velocity,
-        "bias": bias,
-        "pitches": len(group),
-    })
-
 def build_pitcher_tables(first: str, last: str, min_pitches: int):
     try:
         df = get_pitcher_data(first, last, 2025)
@@ -83,22 +46,52 @@ def build_pitcher_tables(first: str, last: str, min_pitches: int):
     if df.empty:
         return None, None, "No Statcast data found."
 
+    # --------------------------------
+    # SEASON-LEVEL pitch-type averages
+    # --------------------------------
+    pitch_type_avg = (
+        df.groupby("pitch_name")["release_speed"]
+          .mean()
+    )
+
+    # Anchor pitch type & MPH
+    anchor_pitch_type = pitch_type_avg.idxmax()
+    anchor_mph = float(pitch_type_avg.loc[anchor_pitch_type])
+
+    # --------------------------------
+    # Per-count aggregation
+    # --------------------------------
+    def bias_by_count(group: pd.DataFrame) -> pd.Series:
+        avg_velocity = float(group["release_speed"].mean())
+        usage = float((group["pitch_name"] == anchor_pitch_type).mean())
+
+        usage_pct = round(usage * 100, 1)
+        under_pct = round((1 - usage) * 100, 1)
+
+        if usage >= 0.5:
+            bias = f"{usage_pct}% OVER {anchor_mph:.1f}"
+        else:
+            bias = f"{under_pct}% UNDER {anchor_mph:.1f}"
+
+        return pd.Series({
+            "avg_velocity": avg_velocity,
+            "bias": bias,
+            "pitches": len(group),
+        })
+
     result = (
         df.groupby(["stand", "count"])
-          .apply(top_pitch_avg_bias)
+          .apply(bias_by_count)
           .reset_index()
     )
 
     result = result[result["pitches"] >= min_pitches]
-
     if result.empty:
         return None, None, "No rows meet pitch threshold."
 
-    # Formatting
     result["avg_velocity"] = result["avg_velocity"].round(1)
     result["stand"] = result["stand"].map({"R": "vs RHB", "L": "vs LHB"})
 
-    # Logical count ordering
     def count_sort_key(c):
         balls, strikes = c.split("-")
         return int(balls) * 10 + int(strikes)
