@@ -7,7 +7,7 @@ from data import get_pitcher_data
 # -----------------------------
 st.set_page_config(page_title="Pitcher Velocity Bias by Count", layout="wide")
 st.title("⚾ Pitcher Velocity by Count (vs LHB / vs RHB)")
-st.caption("Public Statcast data • 2025 season • Bias uses TOP pitch-type AVG MPH per count")
+st.caption("Public Statcast data • 2025 season • Bias based on TOP pitch-type avg MPH per count")
 
 # -----------------------------
 # Sidebar inputs
@@ -54,35 +54,26 @@ if df.empty:
 def top_pitch_avg_bias(group: pd.DataFrame) -> pd.Series:
     """
     For a (stand, count) group:
-    1) Compute avg mph for each pitch_name in this group
-    2) Find pitch_name with the highest avg mph (top pitch-type avg)
-    3) Compute usage % of that pitch type in this group
-    4) Display:
-       - If usage >= 50%:  "{usage}% Over {top_avg}"
-       - Else:            "{100-usage}% Under {top_avg}"
+    - Find pitch type with highest avg MPH in that count
+    - Compute usage % of that pitch type
+    - Display Over / Under relative to that top pitch-type avg MPH
     """
-    speeds = group["release_speed"]
-    avg_velocity = float(speeds.mean())
+    avg_velocity = float(group["release_speed"].mean())
 
-    # Avg mph by pitch type within this count
     pitch_avgs = group.groupby("pitch_name")["release_speed"].mean()
-
     top_pitch_name = pitch_avgs.idxmax()
     top_pitch_avg = float(pitch_avgs.loc[top_pitch_name])
 
-    # Usage of that top pitch type in this count
     usage = float((group["pitch_name"] == top_pitch_name).mean())  # 0..1
 
     if usage >= 0.5:
-        label = f"{int(round(usage * 100))}% Over {top_pitch_avg:.1f}"
+        bias = f"{int(round(usage * 100))}% Over {top_pitch_avg:.1f}"
     else:
-        label = f"{int(round((1 - usage) * 100))}% Under {top_pitch_avg:.1f}"
+        bias = f"{int(round((1 - usage) * 100))}% Under {top_pitch_avg:.1f}"
 
     return pd.Series({
         "avg_velocity": avg_velocity,
-        "top_pitch_type": top_pitch_name,
-        "top_pitch_avg": top_pitch_avg,
-        "bias": label,
+        "bias": bias,
         "pitches": len(group),
     })
 
@@ -103,7 +94,6 @@ if result.empty:
 
 # Formatting
 result["avg_velocity"] = result["avg_velocity"].round(1)
-result["top_pitch_avg"] = result["top_pitch_avg"].round(1)
 result["stand"] = result["stand"].map({"R": "vs RHB", "L": "vs LHB"})
 
 # Sort counts logically (0-0 → 3-2)
@@ -115,9 +105,9 @@ result["count_sort"] = result["count"].apply(count_sort_key)
 result = result.sort_values(["stand", "count_sort"]).drop(columns=["count_sort", "pitches"])
 
 # -----------------------------
-# Columns to display (NO pitch-count column)
+# Columns to display (clean table)
 # -----------------------------
-display_cols = ["count", "avg_velocity", "bias", "top_pitch_type", "top_pitch_avg"]
+display_cols = ["count", "avg_velocity", "bias"]
 
 # Split into two tables (LHB LEFT, RHB RIGHT)
 vs_lhb = result[result["stand"] == "vs LHB"][display_cols]
@@ -136,7 +126,6 @@ with col1:
 
 with col2:
     st.markdown("### 🟦 vs Right-Handed Batters")
-    if vs_rhb.empty:
-        st.info("No data vs RHB.")
-    else:
-        st.dataframe(vs_rhb, use_container_width=True)
+    if v
+
+
