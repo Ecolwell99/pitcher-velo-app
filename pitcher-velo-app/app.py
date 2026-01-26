@@ -10,14 +10,30 @@ st.title("⚾ Pitcher Matchup — Average Velocity by Count")
 st.caption("Public Statcast data • 2025 season")
 
 # =============================
-# Sidebar inputs
+# Matchup header (TOP OF PAGE)
 # =============================
-with st.sidebar:
-    st.header("Pitchers")
-    away_pitcher = st.text_input("Away Pitcher (First Last)", "Gerrit Cole")
-    home_pitcher = st.text_input("Home Pitcher (First Last)", "Corbin Burnes")
+st.markdown("### Matchup")
 
+col_input_1, col_input_2, col_input_3 = st.columns([3, 3, 1])
+
+with col_input_1:
+    away_pitcher = st.text_input(
+        "Away Pitcher",
+        value="Gerrit Cole",
+        placeholder="First Last",
+    )
+
+with col_input_2:
+    home_pitcher = st.text_input(
+        "Home Pitcher",
+        value="Corbin Burnes",
+        placeholder="First Last",
+    )
+
+with col_input_3:
     run = st.button("Run Matchup")
+
+st.divider()
 
 # =============================
 # Constants
@@ -103,7 +119,7 @@ with st.spinner("Pulling Statcast data for both pitchers..."):
 # =============================
 # Display — Away Pitcher
 # =============================
-st.subheader("Away Pitcher")
+st.subheader("✈️ Away Pitcher")
 st.markdown(f"**{away_first} {away_last}**")
 
 if away_error:
@@ -124,7 +140,7 @@ st.divider()
 # =============================
 # Display — Home Pitcher
 # =============================
-st.subheader("Home Pitcher")
+st.subheader("🏠 Home Pitcher")
 st.markdown(f"**{home_first} {home_last}**")
 
 if home_error:
@@ -139,5 +155,3 @@ else:
     with col4:
         st.markdown("### 🟦 vs Right-Handed Batters")
         st.dataframe(home_rhb, use_container_width=True)
-
-
