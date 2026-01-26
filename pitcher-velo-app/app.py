@@ -2,23 +2,19 @@ import streamlit as st
 import pandas as pd
 from data import get_pitcher_data
 
-# =============================
+# -----------------------------
 # Page setup
-# =============================
-st.set_page_config(page_title="Pitcher Matchup Velocity Bias", layout="wide")
-st.title("⚾ Pitcher Matchup — Velocity Bias by Count")
-st.caption("Public Statcast data • 2025 season • Anchor = season top pitch-type AVG MPH")
+# -----------------------------
+st.set_page_config(page_title="Pitcher Velocity Bias by Count", layout="wide")
+st.title("⚾ Pitcher Velocity by Count (vs LHB / vs RHB)")
+st.caption("Public Statcast data • 2025 season • Bias based on TOP pitch-type avg MPH per count")
 
-# =============================
+# -----------------------------
 # Sidebar inputs
-# =============================
+# -----------------------------
 with st.sidebar:
-    st.header("Pitchers")
-    away_pitcher = st.text_input("Away Pitcher (First Last)", "Yoshinobu Yamamoto")
-    home_pitcher = st.text_input("Home Pitcher (First Last)", "Gerrit Cole")
-
-    st.divider()
-
+    st.header("Inputs")
+    pitcher = st.text_input("Pitcher name (First Last)", "Gerrit Cole")
     min_pitches = st.number_input(
         "Minimum pitches per count",
         min_value=1,
@@ -26,142 +22,112 @@ with st.sidebar:
         value=1,
         step=1,
     )
+    run = st.button("Run")
 
-    run = st.button("Run Matchup")
+# -----------------------------
+# Main logic
+# -----------------------------
+if not run:
+    st.info("Enter a pitcher name and click **Run**.")
+    st.stop()
 
-# =============================
-# Helpers
-# =============================
-def parse_name(name: str):
-    if " " not in name.strip():
-        return None, None
-    return name.strip().split(" ", 1)
+if " " not in pitcher.strip():
+    st.error("Please enter pitcher name as: First Last")
+    st.stop()
 
-def build_pitcher_tables(first: str, last: str, min_pitches: int):
+first, last = pitcher.strip().split(" ", 1)
+
+with st.spinner("Pulling Statcast data (may take ~30 seconds on first run)..."):
     try:
         df = get_pitcher_data(first, last, 2025)
     except Exception as e:
-        return None, None, str(e)
+        st.error(str(e))
+        st.stop()
 
-    if df.empty:
-        return None, None, "No Statcast data found."
-
-    # --------------------------------
-    # SEASON-LEVEL pitch-type averages
-    # --------------------------------
-    pitch_type_avg = (
-        df.groupby("pitch_name")["release_speed"]
-          .mean()
-    )
-
-    # Anchor pitch type & MPH
-    anchor_pitch_type = pitch_type_avg.idxmax()
-    anchor_mph = float(pitch_type_avg.loc[anchor_pitch_type])
-
-    # --------------------------------
-    # Per-count aggregation
-    # --------------------------------
-    def bias_by_count(group: pd.DataFrame) -> pd.Series:
-        avg_velocity = float(group["release_speed"].mean())
-        usage = float((group["pitch_name"] == anchor_pitch_type).mean())
-
-        usage_pct = round(usage * 100, 1)
-        under_pct = round((1 - usage) * 100, 1)
-
-        if usage >= 0.5:
-            bias = f"{usage_pct}% OVER {anchor_mph:.1f}"
-        else:
-            bias = f"{under_pct}% UNDER {anchor_mph:.1f}"
-
-        return pd.Series({
-            "avg_velocity": avg_velocity,
-            "bias": bias,
-            "pitches": len(group),
-        })
-
-    result = (
-        df.groupby(["stand", "count"])
-          .apply(bias_by_count)
-          .reset_index()
-    )
-
-    result = result[result["pitches"] >= min_pitches]
-    if result.empty:
-        return None, None, "No rows meet pitch threshold."
-
-    result["avg_velocity"] = result["avg_velocity"].round(1)
-    result["stand"] = result["stand"].map({"R": "vs RHB", "L": "vs LHB"})
-
-    def count_sort_key(c):
-        balls, strikes = c.split("-")
-        return int(balls) * 10 + int(strikes)
-
-    result["count_sort"] = result["count"].apply(count_sort_key)
-    result = result.sort_values(["stand", "count_sort"])
-    result = result.drop(columns=["count_sort", "pitches"])
-
-    display_cols = ["count", "avg_velocity", "bias"]
-
-    vs_lhb = result[result["stand"] == "vs LHB"][display_cols]
-    vs_rhb = result[result["stand"] == "vs RHB"][display_cols]
-
-    return vs_lhb, vs_rhb, None
-
-# =============================
-# Run matchup
-# =============================
-if not run:
-    st.info("Enter Away and Home pitchers, then click **Run Matchup**.")
+if df.empty:
+    st.warning("No Statcast data returned for this pitcher.")
     st.stop()
 
-away_first, away_last = parse_name(away_pitcher)
-home_first, home_last = parse_name(home_pitcher)
+# -----------------------------
+# Helper: top pitch-type AVG mph + usage (per count/handedness)
+# -----------------------------
+def top_pitch_avg_bias(group: pd.DataFrame) -> pd.Series:
+    """
+    For a (stand, count) group:
+    - Find pitch type with highest avg MPH in that count
+    - Compute usage % of that pitch type
+    - Display Over / Under relative to that top pitch-type avg MPH
+    """
+    avg_velocity = float(group["release_speed"].mean())
 
-if not away_first or not home_first:
-    st.error("Please enter both pitcher names as: First Last")
+    pitch_avgs = group.groupby("pitch_name")["release_speed"].mean()
+    top_pitch_name = pitch_avgs.idxmax()
+    top_pitch_avg = float(pitch_avgs.loc[top_pitch_name])
+
+    usage = float((group["pitch_name"] == top_pitch_name).mean())  # 0..1
+
+    if usage >= 0.5:
+        bias = f"{int(round(usage * 100))}% Over {top_pitch_avg:.1f}"
+    else:
+        bias = f"{int(round((1 - usage) * 100))}% Under {top_pitch_avg:.1f}"
+
+    return pd.Series({
+        "avg_velocity": avg_velocity,
+        "bias": bias,
+        "pitches": len(group),
+    })
+
+# -----------------------------
+# Aggregate by count & handedness
+# -----------------------------
+result = (
+    df.groupby(["stand", "count"])
+      .apply(top_pitch_avg_bias)
+      .reset_index()
+)
+
+# Minimum pitch filter
+result = result[result["pitches"] >= min_pitches]
+if result.empty:
+    st.warning("No rows meet the minimum pitch threshold.")
     st.stop()
 
-with st.spinner("Pulling Statcast data for both pitchers..."):
-    away_lhb, away_rhb, away_error = build_pitcher_tables(away_first, away_last, min_pitches)
-    home_lhb, home_rhb, home_error = build_pitcher_tables(home_first, home_last, min_pitches)
+# Formatting
+result["avg_velocity"] = result["avg_velocity"].round(1)
+result["stand"] = result["stand"].map({"R": "vs RHB", "L": "vs LHB"})
 
-# =============================
-# Display — Away Pitcher
-# =============================
-st.subheader("Away Pitcher")
-st.markdown(f"**{away_first} {away_last}**")
+# Sort counts logically (0-0 → 3-2)
+def count_sort_key(c: str) -> int:
+    balls, strikes = c.split("-")
+    return int(balls) * 10 + int(strikes)
 
-if away_error:
-    st.error(f"Away pitcher error: {away_error}")
-else:
-    col1, col2 = st.columns(2)
+result["count_sort"] = result["count"].apply(count_sort_key)
+result = result.sort_values(["stand", "count_sort"]).drop(columns=["count_sort", "pitches"])
 
-    with col1:
-        st.markdown("### 🟥 vs Left-Handed Batters")
-        st.dataframe(away_lhb, use_container_width=True)
+# -----------------------------
+# Columns to display (clean table)
+# -----------------------------
+display_cols = ["count", "avg_velocity", "bias"]
 
-    with col2:
-        st.markdown("### 🟦 vs Right-Handed Batters")
-        st.dataframe(away_rhb, use_container_width=True)
+# Split into two tables (LHB LEFT, RHB RIGHT)
+vs_lhb = result[result["stand"] == "vs LHB"][display_cols]
+vs_rhb = result[result["stand"] == "vs RHB"][display_cols]
 
-st.divider()
+st.subheader(f"{first} {last} — 2025")
 
-# =============================
-# Display — Home Pitcher
-# =============================
-st.subheader("Home Pitcher")
-st.markdown(f"**{home_first} {home_last}**")
+col1, col2 = st.columns(2)
 
-if home_error:
-    st.error(f"Home pitcher error: {home_error}")
-else:
-    col3, col4 = st.columns(2)
+with col1:
+    st.markdown("### 🟥 vs Left-Handed Batters")
+    if vs_lhb.empty:
+        st.info("No data vs LHB.")
+    else:
+        st.dataframe(vs_lhb, use_container_width=True)
 
-    with col3:
-        st.markdown("### 🟥 vs Left-Handed Batters")
-        st.dataframe(home_lhb, use_container_width=True)
-
-    with col4:
-        st.markdown("### 🟦 vs Right-Handed Batters")
-        st.dataframe(home_rhb, use_container_width=True)
+with col2:
+    st.markdown("### 🟦 vs Right-Handed Batters")
+    if vs_rhb.empty:
+        st.info("No data vs RHB.")
+    else:
+        st.dataframe(vs_rhb, use_container_width=True)
 
