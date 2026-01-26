@@ -160,5 +160,27 @@ else:
 
     with col2:
         st.markdown("### 🟦 vs Right-Handed Batters")
-        st.dataframe(away_rhb, use_c
+        st.dataframe(away_rhb, use_container_width=True)
+
+st.divider()
+
+# =============================
+# Display — Home Pitcher
+# =============================
+st.subheader("Home Pitcher")
+st.markdown(f"**{home_first} {home_last}**")
+
+if home_error:
+    st.error(f"Home pitcher error: {home_error}")
+else:
+    col3, col4 = st.columns(2)
+
+    with col3:
+        st.markdown("### 🟥 vs Left-Handed Batters")
+        st.dataframe(home_lhb, use_container_width=True)
+
+    with col4:
+        st.markdown("### 🟦 vs Right-Handed Batters")
+        st.dataframe(home_rhb, use_container_width=True)
+
 
