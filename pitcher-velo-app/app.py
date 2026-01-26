@@ -7,15 +7,15 @@ from data import get_pitcher_data
 # =============================
 st.set_page_config(page_title="Pitcher Matchup Velocity Bias", layout="wide")
 st.title("⚾ Pitcher Matchup — Velocity Bias by Count")
-st.caption("Public Statcast data • 2025 season • Season-level pitch-type velocity anchors")
+st.caption("Public Statcast data • 2025 season • Bias = % of pitches over/under anchor MPH")
 
 # =============================
 # Sidebar inputs
 # =============================
 with st.sidebar:
     st.header("Pitchers")
-    away_pitcher = st.text_input("Away Pitcher (First Last)", "Jack Flaherty")
-    home_pitcher = st.text_input("Home Pitcher (First Last)", "Slade Cecconi")
+    away_pitcher = st.text_input("Away Pitcher (First Last)", "Yoshinobu Yamamoto")
+    home_pitcher = st.text_input("Home Pitcher (First Last)", "Gerrit Cole")
 
     st.divider()
 
@@ -46,28 +46,26 @@ def build_pitcher_tables(first: str, last: str, min_pitches: int):
     if df.empty:
         return None, None, "No Statcast data found."
 
-    # Ensure handedness is clean
     df = df[df["stand"].isin(["R", "L"])]
 
-    output_tables = {}
+    output = {}
 
     for stand_value, stand_label in [("L", "vs LHB"), ("R", "vs RHB")]:
         df_side = df[df["stand"] == stand_value]
 
         if df_side.empty:
-            output_tables[stand_label] = pd.DataFrame()
+            output[stand_label] = pd.DataFrame()
             continue
 
         # --------------------------------
-        # SEASON-LEVEL anchor (per handedness)
+        # Anchor MPH (season-level, handedness-specific)
         # --------------------------------
         pitch_type_avg = (
             df_side.groupby("pitch_name")["release_speed"]
             .mean()
         )
 
-        anchor_pitch = pitch_type_avg.idxmax()
-        anchor_mph = float(pitch_type_avg.loc[anchor_pitch])
+        anchor_mph = float(pitch_type_avg.max())
 
         # --------------------------------
         # Per-count aggregation
@@ -75,19 +73,20 @@ def build_pitcher_tables(first: str, last: str, min_pitches: int):
         def bias_by_count(group: pd.DataFrame) -> pd.Series:
             avg_velocity = float(group["release_speed"].mean())
 
-            usage = float((group["pitch_name"] == anchor_pitch).mean())
+            over_share = float((group["release_speed"] >= anchor_mph).mean())
+            under_share = 1 - over_share
 
-            usage_pct = round(usage * 100, 1)
-            under_pct = round((1 - usage) * 100, 1)
+            over_pct = round(over_share * 100, 1)
+            under_pct = round(under_share * 100, 1)
 
-            if usage >= 0.5:
-                bias = f"{usage_pct}% over {anchor_mph:.1f} MPH"
+            if over_share >= 0.5:
+                bias = f"{over_pct}% Over {anchor_mph:.1f}"
             else:
-                bias = f"{under_pct}% under {anchor_mph:.1f} MPH"
+                bias = f"{under_pct}% Under {anchor_mph:.1f}"
 
             return pd.Series({
-                "avg_velocity": avg_velocity,
-                "bias": bias,
+                "Avg MPH": avg_velocity,
+                "% Over / Under MPH": bias,
                 "pitches": len(group),
             })
 
@@ -98,15 +97,12 @@ def build_pitcher_tables(first: str, last: str, min_pitches: int):
         )
 
         result = result[result["pitches"] >= min_pitches]
-
         if result.empty:
-            output_tables[stand_label] = pd.DataFrame()
+            output[stand_label] = pd.DataFrame()
             continue
 
-        # Formatting
-        result["avg_velocity"] = result["avg_velocity"].round(1)
+        result["Avg MPH"] = result["Avg MPH"].round(1)
 
-        # Logical count order
         def count_sort_key(c):
             balls, strikes = c.split("-")
             return int(balls) * 10 + int(strikes)
@@ -115,15 +111,10 @@ def build_pitcher_tables(first: str, last: str, min_pitches: int):
         result = result.sort_values("count_sort")
         result = result.drop(columns=["count_sort", "pitches"])
 
-        result = result.rename(columns={
-            "count": "Count",
-            "avg_velocity": "Avg MPH",
-            "bias": "% Over / Under MPH"
-        })
+        result = result.rename(columns={"count": "Count"})
+        output[stand_label] = result
 
-        output_tables[stand_label] = result
-
-    return output_tables.get("vs LHB"), output_tables.get("vs RHB"), None
+    return output.get("vs LHB"), output.get("vs RHB"), None
 
 # =============================
 # Run matchup
@@ -182,5 +173,4 @@ else:
     with col4:
         st.markdown("### 🟦 vs Right-Handed Batters")
         st.dataframe(home_rhb, use_container_width=True)
-
 
