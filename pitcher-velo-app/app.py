@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+from pybaseball import chadwick_register
 from data import get_pitcher_data
 
 # =============================
@@ -10,6 +11,27 @@ st.title("⚾ Pitcher Matchup — Average Velocity by Count")
 st.caption("Public Statcast data • 2025 season")
 
 # =============================
+# Load & cache pitcher list
+# =============================
+@st.cache_data(show_spinner=False)
+def load_pitchers():
+    """
+    Load all MLB pitchers from Chadwick register.
+    Returns sorted list of 'First Last'.
+    """
+    df = chadwick_register()
+    pitchers = (
+        df[df["mlb_played_last"] >= 2015]   # modern era filter
+        .assign(name=lambda x: x["name_first"] + " " + x["name_last"])
+        .sort_values("name")["name"]
+        .unique()
+        .tolist()
+    )
+    return pitchers
+
+PITCHER_LIST = load_pitchers()
+
+# =============================
 # Matchup header (TOP OF PAGE)
 # =============================
 st.markdown("### Matchup")
@@ -17,17 +39,17 @@ st.markdown("### Matchup")
 col_input_1, col_input_2, col_input_3 = st.columns([3, 3, 1])
 
 with col_input_1:
-    away_pitcher = st.text_input(
+    away_pitcher = st.selectbox(
         "Away Pitcher",
-        value="Gerrit Cole",
-        placeholder="First Last",
+        options=PITCHER_LIST,
+        index=PITCHER_LIST.index("Gerrit Cole") if "Gerrit Cole" in PITCHER_LIST else 0,
     )
 
 with col_input_2:
-    home_pitcher = st.text_input(
+    home_pitcher = st.selectbox(
         "Home Pitcher",
-        value="Corbin Burnes",
-        placeholder="First Last",
+        options=PITCHER_LIST,
+        index=PITCHER_LIST.index("Corbin Burnes") if "Corbin Burnes" in PITCHER_LIST else 0,
     )
 
 with col_input_3:
@@ -38,15 +60,13 @@ st.divider()
 # =============================
 # Constants
 # =============================
-MIN_PITCHES = 1  # locked, not user-editable
+MIN_PITCHES = 1  # locked
 
 # =============================
 # Helpers
 # =============================
 def parse_name(name: str):
-    if " " not in name.strip():
-        return None, None
-    return name.strip().split(" ", 1)
+    return name.split(" ", 1)
 
 def build_pitcher_tables(first: str, last: str):
     try:
@@ -57,10 +77,8 @@ def build_pitcher_tables(first: str, last: str):
     if df is None or df.empty:
         return None, None, "No Statcast data found."
 
-    # Only R / L batters
     df = df[df["stand"].isin(["R", "L"])]
 
-    # Aggregate: avg velocity by count & handedness
     result = (
         df.groupby(["stand", "count"])
           .agg(
@@ -78,7 +96,6 @@ def build_pitcher_tables(first: str, last: str):
     result["avg_velocity"] = result["avg_velocity"].round(1)
     result["stand"] = result["stand"].map({"L": "vs LHB", "R": "vs RHB"})
 
-    # Logical count sorting
     def count_sort_key(c):
         balls, strikes = c.split("-")
         return int(balls) * 10 + int(strikes)
@@ -98,29 +115,21 @@ def build_pitcher_tables(first: str, last: str):
 # Run matchup
 # =============================
 if not run:
-    st.info("Enter Away and Home pitchers, then click **Run Matchup**.")
+    st.info("Select Away and Home pitchers, then click **Run Matchup**.")
     st.stop()
 
 away_first, away_last = parse_name(away_pitcher)
 home_first, home_last = parse_name(home_pitcher)
 
-if not away_first or not home_first:
-    st.error("Please enter both pitcher names as: First Last")
-    st.stop()
-
 with st.spinner("Pulling Statcast data for both pitchers..."):
-    away_lhb, away_rhb, away_error = build_pitcher_tables(
-        away_first, away_last
-    )
-    home_lhb, home_rhb, home_error = build_pitcher_tables(
-        home_first, home_last
-    )
+    away_lhb, away_rhb, away_error = build_pitcher_tables(away_first, away_last)
+    home_lhb, home_rhb, home_error = build_pitcher_tables(home_first, home_last)
 
 # =============================
 # Display — Away Pitcher
 # =============================
 st.subheader("✈️ Away Pitcher")
-st.markdown(f"**{away_first} {away_last}**")
+st.markdown(f"**{away_pitcher}**")
 
 if away_error:
     st.error(f"Away pitcher error: {away_error}")
@@ -141,7 +150,7 @@ st.divider()
 # Display — Home Pitcher
 # =============================
 st.subheader("🏠 Home Pitcher")
-st.markdown(f"**{home_first} {home_last}**")
+st.markdown(f"**{home_pitcher}**")
 
 if home_error:
     st.error(f"Home pitcher error: {home_error}")
@@ -155,3 +164,4 @@ else:
     with col4:
         st.markdown("### 🟦 vs Right-Handed Batters")
         st.dataframe(home_rhb, use_container_width=True)
+
