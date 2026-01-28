@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from pybaseball import chadwick_register
+from pybaseball import statcast, chadwick_register
 from data import get_pitcher_data
 
 # =============================
@@ -12,16 +12,24 @@ st.title("⚾ Pitcher Matchup — Velocity Bias by Count")
 st.caption("Public Statcast data • 2025 season")
 
 # =============================
-# Load & cache pitcher list
+# Load & cache pitcher list (ONLY real pitchers)
 # =============================
 @st.cache_data(show_spinner=False)
 def load_pitchers():
-    df = chadwick_register()
-    df = df.assign(
-        name=df["name_first"].fillna("") + " " + df["name_last"].fillna("")
+    """
+    Only include players who have thrown at least one pitch in Statcast.
+    This prevents non-pitchers from appearing.
+    """
+    df = statcast(start_dt="2025-03-01", end_dt="2025-11-30")
+    pitchers = (
+        df[["pitcher", "player_name"]]
+        .dropna()
+        .drop_duplicates()
+        .sort_values("player_name")["player_name"]
+        .unique()
+        .tolist()
     )
-    names = sorted(df["name"].dropna().unique().tolist())
-    return names
+    return pitchers
 
 PITCHER_LIST = load_pitchers()
 
@@ -52,27 +60,28 @@ with c3:
 st.divider()
 
 # =============================
-# Constants
-# =============================
-MIN_PITCHES = 1
-
-# =============================
 # Helpers
 # =============================
 def parse_name(full):
     return full.split(" ", 1)
 
+def style_rows(df):
+    """Excel-style alternating row shading"""
+    return df.style.apply(
+        lambda x: ["background-color: #f4f4f4" if i % 2 else "" for i in range(len(x))],
+        axis=0,
+    )
+
 def build_pitch_mix(df):
-    # Exclude pitch outs
     df = df[df["pitch_name"] != "PO"]
 
     mix = (
         df.groupby("pitch_name")
-          .agg(
-              pitches=("release_speed", "count"),
-              avg_mph=("release_speed", "mean"),
-          )
-          .reset_index()
+        .agg(
+            pitches=("release_speed", "count"),
+            avg_mph=("release_speed", "mean"),
+        )
+        .reset_index()
     )
 
     total = mix["pitches"].sum()
@@ -88,13 +97,13 @@ def build_count_tables(df):
     df = df[df["stand"].isin(["R", "L"])]
     output = {}
 
-    for stand_value, stand_label in [("L", "vs LHB"), ("R", "vs RHB")]:
+    for stand_value, stand_label in [("L", "LHB"), ("R", "RHB")]:
         df_side = df[df["stand"] == stand_value]
         rows = []
 
         for count_val, group in df_side.groupby("count"):
             speeds = group["release_speed"].dropna().to_numpy()
-            if len(speeds) < MIN_PITCHES:
+            if len(speeds) == 0:
                 continue
 
             avg_mph = float(np.mean(speeds))
@@ -131,7 +140,7 @@ def build_count_tables(df):
 
         output[stand_label] = result
 
-    return output.get("vs LHB"), output.get("vs RHB")
+    return output.get("LHB"), output.get("RHB")
 
 # =============================
 # Run matchup
@@ -153,21 +162,21 @@ with st.spinner("Pulling Statcast data for both pitchers..."):
 st.subheader("✈️ Away Pitcher")
 st.markdown(f"**{away_pitcher}**")
 
-away_mix = build_pitch_mix(away_df)
-st.markdown("#### Pitch Mix (Season Overall)")
-st.dataframe(away_mix, use_container_width=True, hide_index=True)
+with st.expander("Show Pitch Mix (Season Overall)"):
+    away_mix = build_pitch_mix(away_df)
+    st.dataframe(style_rows(away_mix), use_container_width=True, hide_index=True)
 
 away_lhb, away_rhb = build_count_tables(away_df)
 
 c4, c5 = st.columns(2)
 
 with c4:
-    st.markdown("### 🟥 vs Left-Handed Batters")
-    st.dataframe(away_lhb, use_container_width=True, hide_index=True)
+    st.markdown("**[LHB]**")
+    st.dataframe(style_rows(away_lhb), use_container_width=True, hide_index=True)
 
 with c5:
-    st.markdown("### 🟦 vs Right-Handed Batters")
-    st.dataframe(away_rhb, use_container_width=True, hide_index=True)
+    st.markdown("**[RHB]**")
+    st.dataframe(style_rows(away_rhb), use_container_width=True, hide_index=True)
 
 st.divider()
 
@@ -177,19 +186,19 @@ st.divider()
 st.subheader("🏠 Home Pitcher")
 st.markdown(f"**{home_pitcher}**")
 
-home_mix = build_pitch_mix(home_df)
-st.markdown("#### Pitch Mix (Season Overall)")
-st.dataframe(home_mix, use_container_width=True, hide_index=True)
+with st.expander("Show Pitch Mix (Season Overall)"):
+    home_mix = build_pitch_mix(home_df)
+    st.dataframe(style_rows(home_mix), use_container_width=True, hide_index=True)
 
 home_lhb, home_rhb = build_count_tables(home_df)
 
 c6, c7 = st.columns(2)
 
 with c6:
-    st.markdown("### 🟥 vs Left-Handed Batters")
-    st.dataframe(home_lhb, use_container_width=True, hide_index=True)
+    st.markdown("**[LHB]**")
+    st.dataframe(style_rows(home_lhb), use_container_width=True, hide_index=True)
 
 with c7:
-    st.markdown("### 🟦 vs Right-Handed Batters")
-    st.dataframe(home_rhb, use_container_width=True, hide_index=True)
+    st.markdown("**[RHB]**")
+    st.dataframe(style_rows(home_rhb), use_container_width=True, hide_index=True)
 
