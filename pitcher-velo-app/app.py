@@ -96,9 +96,13 @@ def build_pitch_mix(df):
     if total == 0:
         return pd.DataFrame()
 
-    # 🔑 FORCE DISPLAY ROUNDING (1 DECIMAL)
-    mix["Usage %"] = (mix["pitches"] / total * 100).round(1)
-    mix["Avg MPH"] = mix["avg_mph"].round(1)
+    # Compute values
+    mix["Usage %"] = mix["pitches"] / total * 100
+    mix["Avg MPH"] = mix["avg_mph"]
+
+    # 🔑 FORCE DISPLAY FORMATTING (STRINGS, 1 DECIMAL)
+    mix["Usage %"] = mix["Usage %"].map(lambda x: f"{x:.1f}")
+    mix["Avg MPH"] = mix["Avg MPH"].map(lambda x: f"{x:.1f}")
 
     mix = mix.sort_values("Usage %", ascending=False)
     mix = mix.rename(columns={"pitch_name": "Pitch Type"})
