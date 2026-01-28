@@ -12,24 +12,20 @@ st.title("⚾ Pitcher Matchup — Velocity Bias by Count")
 st.caption("Public Statcast data • 2025 season")
 
 # =============================
-# Load & cache player list (SAFE — no schema assumptions)
+# Load & cache player list (SAFE)
 # =============================
 @st.cache_data(show_spinner=False)
 def load_players():
     df = chadwick_register()
-
-    # Build name safely without assuming position columns
     df = df.assign(
         name=df["name_first"].fillna("") + " " + df["name_last"].fillna("")
     )
-
     names = (
         df["name"]
         .dropna()
         .unique()
         .tolist()
     )
-
     return sorted(names)
 
 PLAYER_LIST = load_players()
@@ -64,6 +60,18 @@ st.divider()
 # Constants
 # =============================
 MIN_PITCHES = 1
+
+# =============================
+# Styling helper (alternating rows)
+# =============================
+def zebra_stripes(df):
+    return df.style.apply(
+        lambda _: [
+            "background-color: #f5f5f5" if i % 2 else ""
+            for i in range(len(df))
+        ],
+        axis=0
+    )
 
 # =============================
 # Helpers
@@ -178,7 +186,11 @@ st.subheader("✈️ Away Pitcher")
 st.markdown(f"**{away_pitcher}**")
 
 with st.expander("Show Pitch Mix (Season Overall)"):
-    st.dataframe(build_pitch_mix(away_df), use_container_width=True, hide_index=True)
+    st.dataframe(
+        zebra_stripes(build_pitch_mix(away_df)),
+        use_container_width=True,
+        hide_index=True
+    )
 
 away_lhb, away_rhb = build_count_tables(away_df)
 
@@ -186,17 +198,19 @@ c4, c5 = st.columns(2)
 
 with c4:
     st.markdown("**[LHB]**")
-    if away_lhb.empty:
-        st.info("No data vs LHB.")
-    else:
-        st.dataframe(away_lhb, use_container_width=True, hide_index=True)
+    st.dataframe(
+        zebra_stripes(away_lhb),
+        use_container_width=True,
+        hide_index=True
+    )
 
 with c5:
     st.markdown("**[RHB]**")
-    if away_rhb.empty:
-        st.info("No data vs RHB.")
-    else:
-        st.dataframe(away_rhb, use_container_width=True, hide_index=True)
+    st.dataframe(
+        zebra_stripes(away_rhb),
+        use_container_width=True,
+        hide_index=True
+    )
 
 st.divider()
 
@@ -207,7 +221,11 @@ st.subheader("🏠 Home Pitcher")
 st.markdown(f"**{home_pitcher}**")
 
 with st.expander("Show Pitch Mix (Season Overall)"):
-    st.dataframe(build_pitch_mix(home_df), use_container_width=True, hide_index=True)
+    st.dataframe(
+        zebra_stripes(build_pitch_mix(home_df)),
+        use_container_width=True,
+        hide_index=True
+    )
 
 home_lhb, home_rhb = build_count_tables(home_df)
 
@@ -215,15 +233,17 @@ c6, c7 = st.columns(2)
 
 with c6:
     st.markdown("**[LHB]**")
-    if home_lhb.empty:
-        st.info("No data vs LHB.")
-    else:
-        st.dataframe(home_lhb, use_container_width=True, hide_index=True)
+    st.dataframe(
+        zebra_stripes(home_lhb),
+        use_container_width=True,
+        hide_index=True
+    )
 
 with c7:
     st.markdown("**[RHB]**")
-    if home_rhb.empty:
-        st.info("No data vs RHB.")
-    else:
-        st.dataframe(home_rhb, use_container_width=True, hide_index=True)
+    st.dataframe(
+        zebra_stripes(home_rhb),
+        use_container_width=True,
+        hide_index=True
+    )
 
