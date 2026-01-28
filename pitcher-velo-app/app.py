@@ -7,8 +7,8 @@ from data import get_pitcher_data
 # =============================
 # Page setup
 # =============================
-st.set_page_config(page_title="Pitcher Matchup — Over / Under Velocity", layout="wide")
-st.title("⚾ Pitcher Matchup — Velocity Behavior by Count")
+st.set_page_config(page_title="Pitcher Matchup — Velocity Bias", layout="wide")
+st.title("⚾ Pitcher Matchup — Velocity Bias by Count")
 st.caption("Public Statcast data • 2025 season")
 
 # =============================
@@ -113,9 +113,6 @@ def build_count_tables(df):
 
             rows.append({
                 "Count": count_val,
-                "Avg MPH": round(avg_mph, 1),
-                "% Over": over_pct,
-                "% Under": under_pct,
                 "Bias": bias,
             })
 
@@ -195,3 +192,4 @@ with c6:
 with c7:
     st.markdown("### 🟦 vs Right-Handed Batters")
     st.dataframe(home_rhb, use_container_width=True, hide_index=True)
+
