@@ -26,25 +26,39 @@ def load_players():
 PITCHER_LIST = load_players()
 
 # =============================
-# Matchup header (TOP)
+# Matchup header
 # =============================
 st.markdown("### Matchup")
 
 c1, c2, c3 = st.columns([3, 3, 1])
 
 with c1:
-    away_pitcher = st.selectbox(
+    away_select = st.selectbox(
         "Away Pitcher",
         options=PITCHER_LIST,
         index=PITCHER_LIST.index("Zac Gallen") if "Zac Gallen" in PITCHER_LIST else 0,
     )
 
+    away_manual = ""
+    if away_select not in PITCHER_LIST:
+        away_manual = st.text_input(
+            "Away pitcher not found? Enter manually (First Last)",
+            placeholder="First Last",
+        )
+
 with c2:
-    home_pitcher = st.selectbox(
+    home_select = st.selectbox(
         "Home Pitcher",
         options=PITCHER_LIST,
         index=PITCHER_LIST.index("Gerrit Cole") if "Gerrit Cole" in PITCHER_LIST else 0,
     )
+
+    home_manual = ""
+    if home_select not in PITCHER_LIST:
+        home_manual = st.text_input(
+            "Home pitcher not found? Enter manually (First Last)",
+            placeholder="First Last",
+        )
 
 with c3:
     run = st.button("Run Matchup")
@@ -52,29 +66,30 @@ with c3:
 st.divider()
 
 # =============================
-# Constants
+# Resolve pitcher names
 # =============================
-MIN_PITCHES = 1
+def resolve_name(selected, manual):
+    name = manual.strip() if manual.strip() else selected
+    if " " not in name:
+        return None, None
+    return name.split(" ", 1)
 
-# =============================
-# Styling helper (dark-mode zebra rows)
-# =============================
-def dark_zebra(df):
-    return df.style.apply(
-        lambda _: [
-            "background-color: rgba(255, 255, 255, 0.045)" if i % 2 else ""
-            for i in range(len(df))
-        ],
-        axis=0
-    )
+away_first, away_last = resolve_name(away_select, away_manual)
+home_first, home_last = resolve_name(home_select, home_manual)
 
 # =============================
 # Helpers
 # =============================
-def parse_name(full):
-    if not full or " " not in full:
-        return None, None
-    return full.split(" ", 1)
+MIN_PITCHES = 1
+
+def dark_zebra(df):
+    return df.style.apply(
+        lambda _: [
+            "background-color: rgba(255,255,255,0.045)" if i % 2 else ""
+            for i in range(len(df))
+        ],
+        axis=0
+    )
 
 def build_pitch_mix(df):
     if df is None or df.empty:
@@ -100,7 +115,6 @@ def build_pitch_mix(df):
 
     mix["Usage %"] = mix["usage_pct"].map(lambda x: f"{x:.1f}")
     mix["Avg MPH"] = mix["avg_mph"].map(lambda x: f"{x:.1f}")
-
     mix = mix.rename(columns={"pitch_name": "Pitch Type"})
 
     return mix[["Pitch Type", "Usage %", "Avg MPH"]]
@@ -112,131 +126,87 @@ def build_count_tables(df):
     df = df[df["stand"].isin(["R", "L"])]
     output = {}
 
-    for stand_value, stand_label in [("L", "LHB"), ("R", "RHB")]:
+    for stand_value, label in [("L", "LHB"), ("R", "RHB")]:
         df_side = df[df["stand"] == stand_value]
         rows = []
 
-        for count_val, group in df_side.groupby("count"):
+        for count, group in df_side.groupby("count"):
             speeds = group["release_speed"].dropna().to_numpy()
             if len(speeds) < MIN_PITCHES:
                 continue
 
-            avg_mph = float(np.mean(speeds))
-            cutoff = round(avg_mph, 1)
+            cutoff = round(float(np.mean(speeds)), 1)
+            over = (speeds >= cutoff).mean()
 
-            over_share = float((speeds >= cutoff).mean())
-            under_share = 1 - over_share
+            bias = (
+                f"{round(over*100,1)}% Over {cutoff:.1f} MPH"
+                if over >= 0.5
+                else f"{round((1-over)*100,1)}% Under {cutoff:.1f} MPH"
+            )
 
-            if over_share >= 0.5:
-                bias = f"{round(over_share*100,1)}% Over {cutoff:.1f} MPH"
-            else:
-                bias = f"{round(under_share*100,1)}% Under {cutoff:.1f} MPH"
+            rows.append({"Count": count, "Bias": bias})
 
-            rows.append({
-                "Count": count_val,
-                "Bias": bias,
-            })
+        if rows:
+            df_out = pd.DataFrame(rows)
+            df_out["sort"] = df_out["Count"].apply(lambda x: int(x.split("-")[0])*10 + int(x.split("-")[1]))
+            df_out = df_out.sort_values("sort").drop(columns="sort").reset_index(drop=True)
+            output[label] = df_out
+        else:
+            output[label] = pd.DataFrame()
 
-        if not rows:
-            output[stand_label] = pd.DataFrame()
-            continue
-
-        result = pd.DataFrame(rows)
-
-        def count_sort_key(c):
-            balls, strikes = c.split("-")
-            return int(balls) * 10 + int(strikes)
-
-        result["sort"] = result["Count"].apply(count_sort_key)
-        result = result.sort_values("sort").drop(columns="sort").reset_index(drop=True)
-
-        output[stand_label] = result
-
-    return output.get("LHB"), output.get("RHB")
+    return output["LHB"], output["RHB"]
 
 # =============================
 # Run matchup
 # =============================
 if not run:
-    st.info("Select Away and Home pitchers, then click **Run Matchup**.")
+    st.info("Select pitchers (or enter manually) and click **Run Matchup**.")
     st.stop()
-
-away_first, away_last = parse_name(away_pitcher)
-home_first, home_last = parse_name(home_pitcher)
 
 if not away_first or not home_first:
-    st.error("Please select valid pitcher names.")
+    st.error("Please enter valid pitcher names as: First Last")
     st.stop()
 
-with st.spinner("Pulling Statcast data for both pitchers..."):
+with st.spinner("Pulling Statcast data..."):
     away_df = get_pitcher_data(away_first, away_last, 2025)
     home_df = get_pitcher_data(home_first, home_last, 2025)
 
 # =============================
-# Display — Away Pitcher
+# Display
 # =============================
 st.subheader("✈️ Away Pitcher")
-st.markdown(f"**{away_pitcher}**")
+st.markdown(f"**{away_first} {away_last}**")
 
 with st.expander("Show Pitch Mix (Season Overall)"):
-    st.dataframe(
-        dark_zebra(build_pitch_mix(away_df)),
-        use_container_width=True,
-        hide_index=True
-    )
+    st.dataframe(dark_zebra(build_pitch_mix(away_df)), use_container_width=True, hide_index=True)
 
 away_lhb, away_rhb = build_count_tables(away_df)
-
 c4, c5 = st.columns(2)
 
 with c4:
     st.markdown("**[LHB]**")
-    st.dataframe(
-        dark_zebra(away_lhb),
-        use_container_width=True,
-        hide_index=True
-    )
+    st.dataframe(dark_zebra(away_lhb), use_container_width=True, hide_index=True)
 
 with c5:
     st.markdown("**[RHB]**")
-    st.dataframe(
-        dark_zebra(away_rhb),
-        use_container_width=True,
-        hide_index=True
-    )
+    st.dataframe(dark_zebra(away_rhb), use_container_width=True, hide_index=True)
 
 st.divider()
 
-# =============================
-# Display — Home Pitcher
-# =============================
 st.subheader("🏠 Home Pitcher")
-st.markdown(f"**{home_pitcher}**")
+st.markdown(f"**{home_first} {home_last}**")
 
 with st.expander("Show Pitch Mix (Season Overall)"):
-    st.dataframe(
-        dark_zebra(build_pitch_mix(home_df)),
-        use_container_width=True,
-        hide_index=True
-    )
+    st.dataframe(dark_zebra(build_pitch_mix(home_df)), use_container_width=True, hide_index=True)
 
 home_lhb, home_rhb = build_count_tables(home_df)
-
 c6, c7 = st.columns(2)
 
 with c6:
     st.markdown("**[LHB]**")
-    st.dataframe(
-        dark_zebra(home_lhb),
-        use_container_width=True,
-        hide_index=True
-    )
+    st.dataframe(dark_zebra(home_lhb), use_container_width=True, hide_index=True)
 
 with c7:
     st.markdown("**[RHB]**")
-    st.dataframe(
-        dark_zebra(home_rhb),
-        use_container_width=True,
-        hide_index=True
-    )
+    st.dataframe(dark_zebra(home_rhb), use_container_width=True, hide_index=True)
 
