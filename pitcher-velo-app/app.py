@@ -9,7 +9,7 @@ from data import get_pitcher_data
 # =============================
 st.set_page_config(page_title="Pitcher Matchup — Velocity Bias", layout="wide")
 st.title("⚾ Pitcher Matchup — Velocity Bias by Count")
-st.caption("Public Statcast data • 2025 season")
+st.caption("Public Statcast data")
 
 # =============================
 # Load & cache player list (SAFE)
@@ -51,6 +51,7 @@ def build_pitch_mix(df):
     if df is None or df.empty:
         return pd.DataFrame()
 
+    # Exclude pitch outs
     df = df[df["pitch_name"] != "PO"]
 
     mix = (
@@ -119,7 +120,7 @@ def build_count_tables(df):
 # =============================
 st.markdown("### Matchup")
 
-c1, c2, c3 = st.columns([3, 3, 1])
+c1, c2, c3, c4 = st.columns([3, 3, 2, 1])
 
 with c1:
     away_pitcher = st.selectbox(
@@ -136,6 +137,13 @@ with c2:
     )
 
 with c3:
+    season = st.selectbox(
+        "Season",
+        options=[2025, 2026],
+        index=0,  # default = 2025
+    )
+
+with c4:
     run = st.button("Run Matchup")
 
 st.divider()
@@ -144,7 +152,7 @@ st.divider()
 # Run matchup
 # =============================
 if not run:
-    st.info("Select pitchers and click **Run Matchup**.")
+    st.info("Select pitchers and season, then click **Run Matchup**.")
     st.stop()
 
 away_first, away_last = parse_name(away_pitcher)
@@ -153,16 +161,16 @@ home_first, home_last = parse_name(home_pitcher)
 away_df, home_df = None, None
 errors = []
 
-with st.spinner("Pulling Statcast data..."):
+with st.spinner(f"Pulling Statcast data for {season}..."):
     try:
-        away_df = get_pitcher_data(away_first, away_last, 2025)
+        away_df = get_pitcher_data(away_first, away_last, season)
     except Exception:
-        errors.append(f"No Statcast data found for Away Pitcher: {away_pitcher}")
+        errors.append(f"No Statcast data found for Away Pitcher: {away_pitcher} ({season})")
 
     try:
-        home_df = get_pitcher_data(home_first, home_last, 2025)
+        home_df = get_pitcher_data(home_first, home_last, season)
     except Exception:
-        errors.append(f"No Statcast data found for Home Pitcher: {home_pitcher}")
+        errors.append(f"No Statcast data found for Home Pitcher: {home_pitcher} ({season})")
 
 for e in errors:
     st.warning(e)
@@ -172,7 +180,7 @@ for e in errors:
 # =============================
 if away_df is not None:
     st.subheader("✈️ Away Pitcher")
-    st.markdown(f"**{away_pitcher}**")
+    st.markdown(f"**{away_pitcher} — {season}**")
 
     with st.expander("Show Pitch Mix (Season Overall)"):
         st.dataframe(
@@ -182,13 +190,13 @@ if away_df is not None:
         )
 
     away_lhb, away_rhb = build_count_tables(away_df)
-    c4, c5 = st.columns(2)
+    c5, c6 = st.columns(2)
 
-    with c4:
+    with c5:
         st.markdown("**[LHB]**")
         st.dataframe(dark_zebra(away_lhb), use_container_width=True, hide_index=True)
 
-    with c5:
+    with c6:
         st.markdown("**[RHB]**")
         st.dataframe(dark_zebra(away_rhb), use_container_width=True, hide_index=True)
 
@@ -199,7 +207,7 @@ st.divider()
 # =============================
 if home_df is not None:
     st.subheader("🏠 Home Pitcher")
-    st.markdown(f"**{home_pitcher}**")
+    st.markdown(f"**{home_pitcher} — {season}**")
 
     with st.expander("Show Pitch Mix (Season Overall)"):
         st.dataframe(
@@ -209,13 +217,13 @@ if home_df is not None:
         )
 
     home_lhb, home_rhb = build_count_tables(home_df)
-    c6, c7 = st.columns(2)
+    c7, c8 = st.columns(2)
 
-    with c6:
+    with c7:
         st.markdown("**[LHB]**")
         st.dataframe(dark_zebra(home_lhb), use_container_width=True, hide_index=True)
 
-    with c7:
+    with c8:
         st.markdown("**[RHB]**")
         st.dataframe(dark_zebra(home_rhb), use_container_width=True, hide_index=True)
 
