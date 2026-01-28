@@ -57,7 +57,7 @@ st.divider()
 MIN_PITCHES = 1
 
 # =============================
-# Styling helper (DARK MODE zebra stripes)
+# Styling helper (dark-mode zebra rows)
 # =============================
 def dark_zebra(df):
     return df.style.apply(
@@ -80,6 +80,7 @@ def build_pitch_mix(df):
     if df is None or df.empty:
         return pd.DataFrame()
 
+    # Exclude pitch outs
     df = df[df["pitch_name"] != "PO"]
 
     mix = (
@@ -95,6 +96,7 @@ def build_pitch_mix(df):
     if total == 0:
         return pd.DataFrame()
 
+    # 🔑 FORCE DISPLAY ROUNDING (1 DECIMAL)
     mix["Usage %"] = (mix["pitches"] / total * 100).round(1)
     mix["Avg MPH"] = mix["avg_mph"].round(1)
 
@@ -161,6 +163,10 @@ if not run:
 
 away_first, away_last = parse_name(away_pitcher)
 home_first, home_last = parse_name(home_pitcher)
+
+if not away_first or not home_first:
+    st.error("Please select valid pitcher names.")
+    st.stop()
 
 with st.spinner("Pulling Statcast data for both pitchers..."):
     away_df = get_pitcher_data(away_first, away_last, 2025)
