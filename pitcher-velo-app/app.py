@@ -1,5 +1,3 @@
-
-# app.py
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -9,9 +7,9 @@ from data import get_pitcher_data
 # =============================
 # Page setup
 # =============================
-st.set_page_config(page_title="Pitcher Matchup — Count-Specific Over/Under", layout="wide")
-st.title("⚾ Pitcher Matchup — Count-Specific Over / Under by Velocity")
-st.caption("Public Statcast data • 2025 season • Cutoff = natural break in release_speed distribution per count")
+st.set_page_config(page_title="Pitcher Matchup — Count Avg Over/Under", layout="wide")
+st.title("⚾ Pitcher Matchup — Over / Under vs Count Average Velocity")
+st.caption("Public Statcast data • 2025 season • Threshold = avg velocity in that count (pitcher + handedness + count-specific)")
 
 # =============================
 # Load & cache pitcher list
@@ -19,7 +17,6 @@ st.caption("Public Statcast data • 2025 season • Cutoff = natural break in r
 @st.cache_data(show_spinner=False)
 def load_pitchers():
     df = chadwick_register()
-    # keep modern-era players and build "First Last" list
     if "name_first" in df.columns and "name_last" in df.columns:
         df = df.assign(name=lambda x: x["name_first"].fillna("") + " " + x["name_last"].fillna(""))
         names = df["name"].dropna().unique().tolist()
@@ -40,7 +37,7 @@ with col_input_1:
     away_pitcher = st.selectbox(
         "Away Pitcher (type to search)",
         options=PITCHER_LIST,
-        index=PITCHER_LIST.index("Yoshinobu Yamamoto") if "Yoshinobu Yamamoto" in PITCHER_LIST else 0,
+        index=PITCHER_LIST.index("Zac Gallen") if "Zac Gallen" in PITCHER_LIST else 0,
     )
 
 with col_input_2:
@@ -68,28 +65,10 @@ def parse_name(full: str):
         return None, None
     return full.split(" ", 1)
 
-def natural_break_threshold(speeds: np.ndarray) -> float:
-    """
-    Given a numpy array of speeds (floats), return a threshold value that is
-    the midpoint of the largest gap between sorted unique speeds.
-    Fallback: if only one unique speed, return the mean.
-    """
-    if len(speeds) == 0:
-        return float("nan")
-    uniq = np.unique(speeds.round(2))  # round small noise
-    if uniq.size <= 1:
-        return float(np.mean(speeds))
-    # find largest gap between consecutive unique speeds
-    diffs = np.diff(uniq)
-    max_idx = int(np.argmax(diffs))
-    # threshold is midpoint between uniq[max_idx] and uniq[max_idx+1]
-    thresh = float((uniq[max_idx] + uniq[max_idx + 1]) / 2.0)
-    return thresh
-
 def build_pitcher_tables(first: str, last: str):
     """
     Returns vs_lhb_df, vs_rhb_df, error (or None)
-    vs_*_df columns: Count, Avg MPH, % Over, % Under, Bias
+    Threshold for Over/Under is the AVG MPH for that count (pitcher+handedness+count-specific).
     """
     try:
         df = get_pitcher_data(first, last, 2025)
@@ -99,45 +78,37 @@ def build_pitcher_tables(first: str, last: str):
     if df is None or df.empty:
         return None, None, "No Statcast data found."
 
-    # Filter to valid stands
     df = df[df["stand"].isin(["R", "L"])]
 
     output = {}
 
     for stand_value, stand_label in [("L", "vs LHB"), ("R", "vs RHB")]:
         df_side = df[df["stand"] == stand_value]
-
         if df_side.empty:
             output[stand_label] = pd.DataFrame()
             continue
 
         rows = []
-        # group by count
         for count_val, group in df_side.groupby("count"):
             speeds = group["release_speed"].dropna().to_numpy()
             pitches = len(speeds)
             if pitches < MIN_PITCHES:
                 continue
 
-            avg_mph = float(np.mean(speeds)) if pitches > 0 else np.nan
+            avg_mph = float(np.mean(speeds))
+            # IMPORTANT: use the displayed (rounded) avg as the cutoff so output matches trader intuition
+            cutoff = round(avg_mph, 1)
 
-            # determine threshold using natural break
-            if pitches >= 2:
-                thresh = natural_break_threshold(speeds)
-            else:
-                thresh = avg_mph
-
-            # compute shares
-            over_share = float((speeds >= thresh).mean()) if pitches > 0 else 0.0
+            over_share = float((speeds >= cutoff).mean()) if pitches > 0 else 0.0
             under_share = 1.0 - over_share
+
             over_pct = round(over_share * 100, 1)
             under_pct = round(under_share * 100, 1)
 
-            # bias string uses majority side, but we also expose both % columns
             if over_share >= 0.5:
-                bias = f"{over_pct}% Over {thresh:.1f} MPH"
+                bias = f"{over_pct}% Over {cutoff:.1f} MPH"
             else:
-                bias = f"{under_pct}% Under {thresh:.1f} MPH"
+                bias = f"{under_pct}% Under {cutoff:.1f} MPH"
 
             rows.append({
                 "Count": count_val,
@@ -145,8 +116,6 @@ def build_pitcher_tables(first: str, last: str):
                 "% Over": over_pct,
                 "% Under": under_pct,
                 "Bias": bias,
-                # keep raw threshold so trader can inspect if needed (not displayed by default)
-                "_threshold": round(thresh, 1),
             })
 
         if not rows:
@@ -162,12 +131,11 @@ def build_pitcher_tables(first: str, last: str):
                 return int(balls) * 10 + int(strikes)
             except Exception:
                 return 999
-        result["sort"] = result["Count"].apply(count_sort_key)
-        result = result.sort_values("sort").drop(columns=["sort"])
 
-        # final displayed columns
-        display = result[["Count", "Avg MPH", "% Over", "% Under", "Bias"]].reset_index(drop=True)
-        output[stand_label] = display
+        result["sort"] = result["Count"].apply(count_sort_key)
+        result = result.sort_values("sort").drop(columns=["sort"]).reset_index(drop=True)
+
+        output[stand_label] = result[["Count", "Avg MPH", "% Over", "% Under", "Bias"]]
 
     return output.get("vs LHB"), output.get("vs RHB"), None
 
@@ -182,7 +150,7 @@ away_first, away_last = parse_name(away_pitcher)
 home_first, home_last = parse_name(home_pitcher)
 
 if not away_first or not home_first:
-    st.error("Please select both pitcher names")
+    st.error("Please select both pitcher names.")
     st.stop()
 
 with st.spinner("Pulling Statcast data for both pitchers..."):
@@ -198,21 +166,13 @@ st.markdown(f"**{away_pitcher}**")
 if away_error:
     st.error(f"Away pitcher error: {away_error}")
 else:
-    col1, col2 = st.columns(2)
-
-    with col1:
+    c1, c2 = st.columns(2)
+    with c1:
         st.markdown("### 🟥 vs Left-Handed Batters")
-        if away_lhb is None or away_lhb.empty:
-            st.info("No data vs LHB.")
-        else:
-            st.dataframe(away_lhb, use_container_width=True)
-
-    with col2:
+        st.dataframe(away_lhb, use_container_width=True) if away_lhb is not None else st.info("No data vs LHB.")
+    with c2:
         st.markdown("### 🟦 vs Right-Handed Batters")
-        if away_rhb is None or away_rhb.empty:
-            st.info("No data vs RHB.")
-        else:
-            st.dataframe(away_rhb, use_container_width=True)
+        st.dataframe(away_rhb, use_container_width=True) if away_rhb is not None else st.info("No data vs RHB.")
 
 st.divider()
 
@@ -225,18 +185,11 @@ st.markdown(f"**{home_pitcher}**")
 if home_error:
     st.error(f"Home pitcher error: {home_error}")
 else:
-    col3, col4 = st.columns(2)
-
-    with col3:
+    c3, c4 = st.columns(2)
+    with c3:
         st.markdown("### 🟥 vs Left-Handed Batters")
-        if home_lhb is None or home_lhb.empty:
-            st.info("No data vs LHB.")
-        else:
-            st.dataframe(home_lhb, use_container_width=True)
-
-    with col4:
+        st.dataframe(home_lhb, use_container_width=True) if home_lhb is not None else st.info("No data vs LHB.")
+    with c4:
         st.markdown("### 🟦 vs Right-Handed Batters")
-        if home_rhb is None or home_rhb.empty:
-            st.info("No data vs RHB.")
-        else:
-            st.dataframe(home_rhb, use_container_width=True)
+        st.dataframe(home_rhb, use_container_width=True) if home_rhb is not None else st.info("No data vs RHB.")
+
