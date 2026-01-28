@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from pybaseball import statcast, chadwick_register
+from pybaseball import chadwick_register
 from data import get_pitcher_data
 
 # =============================
@@ -12,24 +12,27 @@ st.title("⚾ Pitcher Matchup — Velocity Bias by Count")
 st.caption("Public Statcast data • 2025 season")
 
 # =============================
-# Load & cache pitcher list (ONLY real pitchers)
+# Load & cache pitcher list (FAST, pitchers only)
 # =============================
 @st.cache_data(show_spinner=False)
 def load_pitchers():
-    """
-    Only include players who have thrown at least one pitch in Statcast.
-    This prevents non-pitchers from appearing.
-    """
-    df = statcast(start_dt="2025-03-01", end_dt="2025-11-30")
-    pitchers = (
-        df[["pitcher", "player_name"]]
+    df = chadwick_register()
+
+    # Keep MLB pitchers only
+    df = df[df["mlb_pos"] == "P"]
+
+    df = df.assign(
+        name=df["name_first"].fillna("") + " " + df["name_last"].fillna("")
+    )
+
+    names = (
+        df["name"]
         .dropna()
-        .drop_duplicates()
-        .sort_values("player_name")["player_name"]
         .unique()
         .tolist()
     )
-    return pitchers
+
+    return sorted(names)
 
 PITCHER_LIST = load_pitchers()
 
@@ -60,28 +63,26 @@ with c3:
 st.divider()
 
 # =============================
+# Constants
+# =============================
+MIN_PITCHES = 1
+
+# =============================
 # Helpers
 # =============================
 def parse_name(full):
     return full.split(" ", 1)
-
-def style_rows(df):
-    """Excel-style alternating row shading"""
-    return df.style.apply(
-        lambda x: ["background-color: #f4f4f4" if i % 2 else "" for i in range(len(x))],
-        axis=0,
-    )
 
 def build_pitch_mix(df):
     df = df[df["pitch_name"] != "PO"]
 
     mix = (
         df.groupby("pitch_name")
-        .agg(
-            pitches=("release_speed", "count"),
-            avg_mph=("release_speed", "mean"),
-        )
-        .reset_index()
+          .agg(
+              pitches=("release_speed", "count"),
+              avg_mph=("release_speed", "mean"),
+          )
+          .reset_index()
     )
 
     total = mix["pitches"].sum()
@@ -103,7 +104,7 @@ def build_count_tables(df):
 
         for count_val, group in df_side.groupby("count"):
             speeds = group["release_speed"].dropna().to_numpy()
-            if len(speeds) == 0:
+            if len(speeds) < MIN_PITCHES:
                 continue
 
             avg_mph = float(np.mean(speeds))
@@ -163,8 +164,7 @@ st.subheader("✈️ Away Pitcher")
 st.markdown(f"**{away_pitcher}**")
 
 with st.expander("Show Pitch Mix (Season Overall)"):
-    away_mix = build_pitch_mix(away_df)
-    st.dataframe(style_rows(away_mix), use_container_width=True, hide_index=True)
+    st.dataframe(build_pitch_mix(away_df), use_container_width=True, hide_index=True)
 
 away_lhb, away_rhb = build_count_tables(away_df)
 
@@ -172,11 +172,11 @@ c4, c5 = st.columns(2)
 
 with c4:
     st.markdown("**[LHB]**")
-    st.dataframe(style_rows(away_lhb), use_container_width=True, hide_index=True)
+    st.dataframe(away_lhb, use_container_width=True, hide_index=True)
 
 with c5:
     st.markdown("**[RHB]**")
-    st.dataframe(style_rows(away_rhb), use_container_width=True, hide_index=True)
+    st.dataframe(away_rhb, use_container_width=True, hide_index=True)
 
 st.divider()
 
@@ -187,8 +187,7 @@ st.subheader("🏠 Home Pitcher")
 st.markdown(f"**{home_pitcher}**")
 
 with st.expander("Show Pitch Mix (Season Overall)"):
-    home_mix = build_pitch_mix(home_df)
-    st.dataframe(style_rows(home_mix), use_container_width=True, hide_index=True)
+    st.dataframe(build_pitch_mix(home_df), use_container_width=True, hide_index=True)
 
 home_lhb, home_rhb = build_count_tables(home_df)
 
@@ -196,9 +195,9 @@ c6, c7 = st.columns(2)
 
 with c6:
     st.markdown("**[LHB]**")
-    st.dataframe(style_rows(home_lhb), use_container_width=True, hide_index=True)
+    st.dataframe(home_lhb, use_container_width=True, hide_index=True)
 
 with c7:
     st.markdown("**[RHB]**")
-    st.dataframe(style_rows(home_rhb), use_container_width=True, hide_index=True)
+    st.dataframe(home_rhb, use_container_width=True, hide_index=True)
 
