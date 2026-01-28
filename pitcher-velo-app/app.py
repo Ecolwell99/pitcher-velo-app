@@ -26,7 +26,7 @@ def load_players():
 PITCHER_LIST = load_players()
 
 # =============================
-# Dark-mode zebra rows
+# Styling helper (dark-mode zebra rows)
 # =============================
 def dark_zebra(df):
     return df.style.apply(
@@ -42,9 +42,8 @@ def dark_zebra(df):
 # =============================
 MIN_PITCHES = 1
 
-def parse_name(full: str):
-    full = (full or "").strip()
-    if " " not in full:
+def parse_name(full):
+    if not full or " " not in full:
         return None, None
     return full.split(" ", 1)
 
@@ -116,20 +115,6 @@ def build_count_tables(df):
     return output["LHB"], output["RHB"]
 
 # =============================
-# Session state (text input is source of truth)
-# =============================
-if "away_name" not in st.session_state:
-    st.session_state["away_name"] = "Max Scherzer"
-if "home_name" not in st.session_state:
-    st.session_state["home_name"] = "Gerrit Cole"
-
-def set_away_from_dropdown():
-    st.session_state["away_name"] = st.session_state["away_pick"]
-
-def set_home_from_dropdown():
-    st.session_state["home_name"] = st.session_state["home_pick"]
-
-# =============================
 # Matchup header
 # =============================
 st.markdown("### Matchup")
@@ -137,21 +122,17 @@ st.markdown("### Matchup")
 c1, c2, c3 = st.columns([3, 3, 1])
 
 with c1:
-    st.text_input("Away Pitcher (type any name)", key="away_name")
-    st.selectbox(
-        "Pick from list (optional)",
+    away_pitcher = st.selectbox(
+        "Away Pitcher",
         options=PITCHER_LIST,
-        key="away_pick",
-        on_change=set_away_from_dropdown,
+        index=PITCHER_LIST.index("Zac Gallen") if "Zac Gallen" in PITCHER_LIST else 0,
     )
 
 with c2:
-    st.text_input("Home Pitcher (type any name)", key="home_name")
-    st.selectbox(
-        "Pick from list (optional)",
+    home_pitcher = st.selectbox(
+        "Home Pitcher",
         options=PITCHER_LIST,
-        key="home_pick",
-        on_change=set_home_from_dropdown,
+        index=PITCHER_LIST.index("Gerrit Cole") if "Gerrit Cole" in PITCHER_LIST else 0,
     )
 
 with c3:
@@ -163,17 +144,12 @@ st.divider()
 # Run matchup
 # =============================
 if not run:
-    st.info("Type pitcher names (or pick from list) and click **Run Matchup**.")
+    st.info("Select pitchers and click **Run Matchup**.")
     st.stop()
 
-away_first, away_last = parse_name(st.session_state["away_name"])
-home_first, home_last = parse_name(st.session_state["home_name"])
+away_first, away_last = parse_name(away_pitcher)
+home_first, home_last = parse_name(home_pitcher)
 
-if not away_first or not home_first:
-    st.error("Please enter pitcher names as: First Last")
-    st.stop()
-
-# --- SAFE DATA FETCH ---
 away_df, home_df = None, None
 errors = []
 
@@ -181,26 +157,29 @@ with st.spinner("Pulling Statcast data..."):
     try:
         away_df = get_pitcher_data(away_first, away_last, 2025)
     except Exception:
-        errors.append(f"Away pitcher not found: {away_first} {away_last}")
+        errors.append(f"No Statcast data found for Away Pitcher: {away_pitcher}")
 
     try:
         home_df = get_pitcher_data(home_first, home_last, 2025)
     except Exception:
-        errors.append(f"Home pitcher not found: {home_first} {home_last}")
+        errors.append(f"No Statcast data found for Home Pitcher: {home_pitcher}")
 
-if errors:
-    for e in errors:
-        st.warning(e)
+for e in errors:
+    st.warning(e)
 
 # =============================
-# Display (only show what exists)
+# Display — Away Pitcher
 # =============================
 if away_df is not None:
     st.subheader("✈️ Away Pitcher")
-    st.markdown(f"**{away_first} {away_last}**")
+    st.markdown(f"**{away_pitcher}**")
 
     with st.expander("Show Pitch Mix (Season Overall)"):
-        st.dataframe(dark_zebra(build_pitch_mix(away_df)), use_container_width=True, hide_index=True)
+        st.dataframe(
+            dark_zebra(build_pitch_mix(away_df)),
+            use_container_width=True,
+            hide_index=True
+        )
 
     away_lhb, away_rhb = build_count_tables(away_df)
     c4, c5 = st.columns(2)
@@ -215,12 +194,19 @@ if away_df is not None:
 
 st.divider()
 
+# =============================
+# Display — Home Pitcher
+# =============================
 if home_df is not None:
     st.subheader("🏠 Home Pitcher")
-    st.markdown(f"**{home_first} {home_last}**")
+    st.markdown(f"**{home_pitcher}**")
 
     with st.expander("Show Pitch Mix (Season Overall)"):
-        st.dataframe(dark_zebra(build_pitch_mix(home_df)), use_container_width=True, hide_index=True)
+        st.dataframe(
+            dark_zebra(build_pitch_mix(home_df)),
+            use_container_width=True,
+            hide_index=True
+        )
 
     home_lhb, home_rhb = build_count_tables(home_df)
     c6, c7 = st.columns(2)
