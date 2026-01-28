@@ -7,9 +7,9 @@ from data import get_pitcher_data
 # =============================
 # Page setup
 # =============================
-st.set_page_config(page_title="Pitcher Matchup — Count Avg Over/Under", layout="wide")
-st.title("⚾ Pitcher Matchup — Over / Under vs Count Average Velocity")
-st.caption("Public Statcast data • 2025 season • Threshold = avg velocity in that count")
+st.set_page_config(page_title="Pitcher Matchup — Over / Under Velocity", layout="wide")
+st.title("⚾ Pitcher Matchup — Velocity Behavior by Count")
+st.caption("Public Statcast data • 2025 season")
 
 # =============================
 # Load & cache pitcher list
@@ -62,26 +62,35 @@ MIN_PITCHES = 1
 def parse_name(full):
     return full.split(" ", 1)
 
-def build_pitcher_tables(first, last):
-    try:
-        df = get_pitcher_data(first, last, 2025)
-    except Exception as e:
-        return None, None, str(e)
+def build_pitch_mix(df):
+    """
+    Season-level pitch mix (overall, no handedness split)
+    """
+    mix = (
+        df.groupby("pitch_name")
+          .agg(
+              pitches=("release_speed", "count"),
+              avg_mph=("release_speed", "mean"),
+          )
+          .reset_index()
+    )
 
-    if df is None or df.empty:
-        return None, None, "No Statcast data found."
+    total = mix["pitches"].sum()
+    mix["Usage %"] = (mix["pitches"] / total * 100).round(1)
+    mix["Avg MPH"] = mix["avg_mph"].round(1)
 
+    mix = mix.sort_values("Usage %", ascending=False)
+    mix = mix.rename(columns={"pitch_name": "Pitch Type"})
+    return mix[["Pitch Type", "Usage %", "Avg MPH"]]
+
+def build_count_tables(df):
     df = df[df["stand"].isin(["R", "L"])]
-
     output = {}
 
     for stand_value, stand_label in [("L", "vs LHB"), ("R", "vs RHB")]:
         df_side = df[df["stand"] == stand_value]
-        if df_side.empty:
-            output[stand_label] = pd.DataFrame()
-            continue
-
         rows = []
+
         for count_val, group in df_side.groupby("count"):
             speeds = group["release_speed"].dropna().to_numpy()
             if len(speeds) < MIN_PITCHES:
@@ -124,7 +133,7 @@ def build_pitcher_tables(first, last):
 
         output[stand_label] = result
 
-    return output.get("vs LHB"), output.get("vs RHB"), None
+    return output.get("vs LHB"), output.get("vs RHB")
 
 # =============================
 # Run matchup
@@ -137,8 +146,8 @@ away_first, away_last = parse_name(away_pitcher)
 home_first, home_last = parse_name(home_pitcher)
 
 with st.spinner("Pulling Statcast data for both pitchers..."):
-    away_lhb, away_rhb, away_error = build_pitcher_tables(away_first, away_last)
-    home_lhb, home_rhb, home_error = build_pitcher_tables(home_first, home_last)
+    away_df = get_pitcher_data(away_first, away_last, 2025)
+    home_df = get_pitcher_data(home_first, home_last, 2025)
 
 # =============================
 # Display — Away Pitcher
@@ -146,24 +155,21 @@ with st.spinner("Pulling Statcast data for both pitchers..."):
 st.subheader("✈️ Away Pitcher")
 st.markdown(f"**{away_pitcher}**")
 
-if away_error:
-    st.error(f"Away pitcher error: {away_error}")
-else:
-    col1, col2 = st.columns(2)
+away_mix = build_pitch_mix(away_df)
+st.markdown("#### Pitch Mix (Season Overall)")
+st.dataframe(away_mix, use_container_width=True)
 
-    with col1:
-        st.markdown("### 🟥 vs Left-Handed Batters")
-        if away_lhb is None or away_lhb.empty:
-            st.info("No data vs LHB.")
-        else:
-            st.dataframe(away_lhb, use_container_width=True)
+away_lhb, away_rhb = build_count_tables(away_df)
 
-    with col2:
-        st.markdown("### 🟦 vs Right-Handed Batters")
-        if away_rhb is None or away_rhb.empty:
-            st.info("No data vs RHB.")
-        else:
-            st.dataframe(away_rhb, use_container_width=True)
+c4, c5 = st.columns(2)
+
+with c4:
+    st.markdown("### 🟥 vs Left-Handed Batters")
+    st.dataframe(away_lhb, use_container_width=True)
+
+with c5:
+    st.markdown("### 🟦 vs Right-Handed Batters")
+    st.dataframe(away_rhb, use_container_width=True)
 
 st.divider()
 
@@ -173,22 +179,19 @@ st.divider()
 st.subheader("🏠 Home Pitcher")
 st.markdown(f"**{home_pitcher}**")
 
-if home_error:
-    st.error(f"Home pitcher error: {home_error}")
-else:
-    col3, col4 = st.columns(2)
+home_mix = build_pitch_mix(home_df)
+st.markdown("#### Pitch Mix (Season Overall)")
+st.dataframe(home_mix, use_container_width=True)
 
-    with col3:
-        st.markdown("### 🟥 vs Left-Handed Batters")
-        if home_lhb is None or home_lhb.empty:
-            st.info("No data vs LHB.")
-        else:
-            st.dataframe(home_lhb, use_container_width=True)
+home_lhb, home_rhb = build_count_tables(home_df)
 
-    with col4:
-        st.markdown("### 🟦 vs Right-Handed Batters")
-        if home_rhb is None or home_rhb.empty:
-            st.info("No data vs RHB.")
-        else:
-            st.dataframe(home_rhb, use_container_width=True)
+c6, c7 = st.columns(2)
+
+with c6:
+    st.markdown("### 🟥 vs Left-Handed Batters")
+    st.dataframe(home_lhb, use_container_width=True)
+
+with c7:
+    st.markdown("### 🟦 vs Right-Handed Batters")
+    st.dataframe(home_rhb, use_container_width=True)
 
