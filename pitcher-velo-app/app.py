@@ -20,12 +20,7 @@ def load_players():
     df = df.assign(
         name=df["name_first"].fillna("") + " " + df["name_last"].fillna("")
     )
-    names = (
-        df["name"]
-        .dropna()
-        .unique()
-        .tolist()
-    )
+    names = df["name"].dropna().unique().tolist()
     return sorted(names)
 
 PLAYER_LIST = load_players()
@@ -62,12 +57,12 @@ st.divider()
 MIN_PITCHES = 1
 
 # =============================
-# Styling helper (alternating rows)
+# Styling helper (DARK MODE zebra stripes)
 # =============================
-def zebra_stripes(df):
+def dark_zebra(df):
     return df.style.apply(
         lambda _: [
-            "background-color: #f5f5f5" if i % 2 else ""
+            "background-color: rgba(255, 255, 255, 0.045)" if i % 2 else ""
             for i in range(len(df))
         ],
         axis=0
@@ -85,7 +80,6 @@ def build_pitch_mix(df):
     if df is None or df.empty:
         return pd.DataFrame()
 
-    # Exclude pitch outs
     df = df[df["pitch_name"] != "PO"]
 
     mix = (
@@ -131,13 +125,10 @@ def build_count_tables(df):
             over_share = float((speeds >= cutoff).mean())
             under_share = 1 - over_share
 
-            over_pct = round(over_share * 100, 1)
-            under_pct = round(under_share * 100, 1)
-
             if over_share >= 0.5:
-                bias = f"{over_pct}% Over {cutoff:.1f} MPH"
+                bias = f"{round(over_share*100,1)}% Over {cutoff:.1f} MPH"
             else:
-                bias = f"{under_pct}% Under {cutoff:.1f} MPH"
+                bias = f"{round(under_share*100,1)}% Under {cutoff:.1f} MPH"
 
             rows.append({
                 "Count": count_val,
@@ -171,10 +162,6 @@ if not run:
 away_first, away_last = parse_name(away_pitcher)
 home_first, home_last = parse_name(home_pitcher)
 
-if not away_first or not home_first:
-    st.error("Please select valid pitcher names.")
-    st.stop()
-
 with st.spinner("Pulling Statcast data for both pitchers..."):
     away_df = get_pitcher_data(away_first, away_last, 2025)
     home_df = get_pitcher_data(home_first, home_last, 2025)
@@ -187,7 +174,7 @@ st.markdown(f"**{away_pitcher}**")
 
 with st.expander("Show Pitch Mix (Season Overall)"):
     st.dataframe(
-        zebra_stripes(build_pitch_mix(away_df)),
+        dark_zebra(build_pitch_mix(away_df)),
         use_container_width=True,
         hide_index=True
     )
@@ -199,7 +186,7 @@ c4, c5 = st.columns(2)
 with c4:
     st.markdown("**[LHB]**")
     st.dataframe(
-        zebra_stripes(away_lhb),
+        dark_zebra(away_lhb),
         use_container_width=True,
         hide_index=True
     )
@@ -207,7 +194,7 @@ with c4:
 with c5:
     st.markdown("**[RHB]**")
     st.dataframe(
-        zebra_stripes(away_rhb),
+        dark_zebra(away_rhb),
         use_container_width=True,
         hide_index=True
     )
@@ -222,7 +209,7 @@ st.markdown(f"**{home_pitcher}**")
 
 with st.expander("Show Pitch Mix (Season Overall)"):
     st.dataframe(
-        zebra_stripes(build_pitch_mix(home_df)),
+        dark_zebra(build_pitch_mix(home_df)),
         use_container_width=True,
         hide_index=True
     )
@@ -234,7 +221,7 @@ c6, c7 = st.columns(2)
 with c6:
     st.markdown("**[LHB]**")
     st.dataframe(
-        zebra_stripes(home_lhb),
+        dark_zebra(home_lhb),
         use_container_width=True,
         hide_index=True
     )
@@ -242,7 +229,7 @@ with c6:
 with c7:
     st.markdown("**[RHB]**")
     st.dataframe(
-        zebra_stripes(home_rhb),
+        dark_zebra(home_rhb),
         use_container_width=True,
         hide_index=True
     )
