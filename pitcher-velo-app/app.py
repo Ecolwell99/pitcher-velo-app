@@ -70,7 +70,6 @@ def build_pitch_mix(df):
     mix["usage_pct"] = mix["pitches"] / total * 100
     mix = mix.sort_values("usage_pct", ascending=False)
 
-    # 1 decimal, consistent display
     mix["Usage %"] = mix["usage_pct"].map(lambda x: f"{x:.1f}")
     mix["Avg MPH"] = mix["avg_mph"].map(lambda x: f"{x:.1f}")
     mix = mix.rename(columns={"pitch_name": "Pitch Type"})
@@ -96,16 +95,19 @@ def build_count_tables(df):
             cutoff = round(float(np.mean(speeds)), 1)
             over = float((speeds >= cutoff).mean())
 
-            if over >= 0.5:
-                bias = f"{round(over*100,1)}% Over {cutoff:.1f} MPH"
-            else:
-                bias = f"{round((1-over)*100,1)}% Under {cutoff:.1f} MPH"
+            bias = (
+                f"{round(over*100,1)}% Over {cutoff:.1f} MPH"
+                if over >= 0.5
+                else f"{round((1-over)*100,1)}% Under {cutoff:.1f} MPH"
+            )
 
             rows.append({"Count": count, "Bias": bias})
 
         if rows:
             df_out = pd.DataFrame(rows)
-            df_out["sort"] = df_out["Count"].apply(lambda x: int(x.split("-")[0]) * 10 + int(x.split("-")[1]))
+            df_out["sort"] = df_out["Count"].apply(
+                lambda x: int(x.split("-")[0]) * 10 + int(x.split("-")[1])
+            )
             df_out = df_out.sort_values("sort").drop(columns="sort").reset_index(drop=True)
             output[label] = df_out
         else:
@@ -114,14 +116,13 @@ def build_count_tables(df):
     return output["LHB"], output["RHB"]
 
 # =============================
-# Session state defaults
+# Session state (text input is source of truth)
 # =============================
 if "away_name" not in st.session_state:
-    st.session_state["away_name"] = "Zac Gallen"
+    st.session_state["away_name"] = "Max Scherzer"
 if "home_name" not in st.session_state:
     st.session_state["home_name"] = "Gerrit Cole"
 
-# Dropdown helper callbacks (fills text input)
 def set_away_from_dropdown():
     st.session_state["away_name"] = st.session_state["away_pick"]
 
@@ -129,29 +130,27 @@ def set_home_from_dropdown():
     st.session_state["home_name"] = st.session_state["home_pick"]
 
 # =============================
-# Matchup header (TOP)
+# Matchup header
 # =============================
 st.markdown("### Matchup")
 
 c1, c2, c3 = st.columns([3, 3, 1])
 
 with c1:
-    st.text_input("Away Pitcher (type any name)", key="away_name", placeholder="First Last")
+    st.text_input("Away Pitcher (type any name)", key="away_name")
     st.selectbox(
         "Pick from list (optional)",
         options=PITCHER_LIST,
         key="away_pick",
-        index=PITCHER_LIST.index("Zac Gallen") if "Zac Gallen" in PITCHER_LIST else 0,
         on_change=set_away_from_dropdown,
     )
 
 with c2:
-    st.text_input("Home Pitcher (type any name)", key="home_name", placeholder="First Last")
+    st.text_input("Home Pitcher (type any name)", key="home_name")
     st.selectbox(
         "Pick from list (optional)",
         options=PITCHER_LIST,
         key="home_pick",
-        index=PITCHER_LIST.index("Gerrit Cole") if "Gerrit Cole" in PITCHER_LIST else 0,
         on_change=set_home_from_dropdown,
     )
 
@@ -174,49 +173,63 @@ if not away_first or not home_first:
     st.error("Please enter pitcher names as: First Last")
     st.stop()
 
+# --- SAFE DATA FETCH ---
+away_df, home_df = None, None
+errors = []
+
 with st.spinner("Pulling Statcast data..."):
-    away_df = get_pitcher_data(away_first, away_last, 2025)
-    home_df = get_pitcher_data(home_first, home_last, 2025)
+    try:
+        away_df = get_pitcher_data(away_first, away_last, 2025)
+    except Exception:
+        errors.append(f"Away pitcher not found: {away_first} {away_last}")
+
+    try:
+        home_df = get_pitcher_data(home_first, home_last, 2025)
+    except Exception:
+        errors.append(f"Home pitcher not found: {home_first} {home_last}")
+
+if errors:
+    for e in errors:
+        st.warning(e)
 
 # =============================
-# Display — Away Pitcher
+# Display (only show what exists)
 # =============================
-st.subheader("✈️ Away Pitcher")
-st.markdown(f"**{away_first} {away_last}**")
+if away_df is not None:
+    st.subheader("✈️ Away Pitcher")
+    st.markdown(f"**{away_first} {away_last}**")
 
-with st.expander("Show Pitch Mix (Season Overall)"):
-    st.dataframe(dark_zebra(build_pitch_mix(away_df)), use_container_width=True, hide_index=True)
+    with st.expander("Show Pitch Mix (Season Overall)"):
+        st.dataframe(dark_zebra(build_pitch_mix(away_df)), use_container_width=True, hide_index=True)
 
-away_lhb, away_rhb = build_count_tables(away_df)
-c4, c5 = st.columns(2)
+    away_lhb, away_rhb = build_count_tables(away_df)
+    c4, c5 = st.columns(2)
 
-with c4:
-    st.markdown("**[LHB]**")
-    st.dataframe(dark_zebra(away_lhb), use_container_width=True, hide_index=True)
+    with c4:
+        st.markdown("**[LHB]**")
+        st.dataframe(dark_zebra(away_lhb), use_container_width=True, hide_index=True)
 
-with c5:
-    st.markdown("**[RHB]**")
-    st.dataframe(dark_zebra(away_rhb), use_container_width=True, hide_index=True)
+    with c5:
+        st.markdown("**[RHB]**")
+        st.dataframe(dark_zebra(away_rhb), use_container_width=True, hide_index=True)
 
 st.divider()
 
-# =============================
-# Display — Home Pitcher
-# =============================
-st.subheader("🏠 Home Pitcher")
-st.markdown(f"**{home_first} {home_last}**")
+if home_df is not None:
+    st.subheader("🏠 Home Pitcher")
+    st.markdown(f"**{home_first} {home_last}**")
 
-with st.expander("Show Pitch Mix (Season Overall)"):
-    st.dataframe(dark_zebra(build_pitch_mix(home_df)), use_container_width=True, hide_index=True)
+    with st.expander("Show Pitch Mix (Season Overall)"):
+        st.dataframe(dark_zebra(build_pitch_mix(home_df)), use_container_width=True, hide_index=True)
 
-home_lhb, home_rhb = build_count_tables(home_df)
-c6, c7 = st.columns(2)
+    home_lhb, home_rhb = build_count_tables(home_df)
+    c6, c7 = st.columns(2)
 
-with c6:
-    st.markdown("**[LHB]**")
-    st.dataframe(dark_zebra(home_lhb), use_container_width=True, hide_index=True)
+    with c6:
+        st.markdown("**[LHB]**")
+        st.dataframe(dark_zebra(home_lhb), use_container_width=True, hide_index=True)
 
-with c7:
-    st.markdown("**[RHB]**")
-    st.dataframe(dark_zebra(home_rhb), use_container_width=True, hide_index=True)
+    with c7:
+        st.markdown("**[RHB]**")
+        st.dataframe(dark_zebra(home_rhb), use_container_width=True, hide_index=True)
 
