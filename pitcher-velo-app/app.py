@@ -12,18 +12,54 @@ st.title("⚾ Pitcher Matchup — Velocity Bias by Count")
 st.caption("Public Statcast data")
 
 # =============================
-# Load & cache player list (SAFE)
+# Load & cache pitcher list (SAFE heuristic filtering)
 # =============================
 @st.cache_data(show_spinner=False)
-def load_players():
-    df = chadwick_register()
-    df = df.assign(
-        name=df["name_first"].fillna("") + " " + df["name_last"].fillna("")
+def load_pitchers_heuristic():
+    df = chadwick_register().copy()
+
+    # Build name safely
+    df["name"] = (
+        df.get("name_first", "").fillna("") + " " +
+        df.get("name_last", "").fillna("")
     )
-    names = df["name"].dropna().unique().tolist()
+    df["name"] = df["name"].str.strip()
+
+    # --- Heuristic filtering ---
+    # We only DROP rows when we are confident the player is NOT a pitcher.
+
+    pitcher_positions = {"P", "SP", "RP"}
+
+    if "mlb_pos" in df.columns:
+        df = df[
+            df["mlb_pos"].isna() |
+            df["mlb_pos"].isin(pitcher_positions)
+        ]
+
+    elif "primary_position" in df.columns:
+        df = df[
+            df["primary_position"].isna() |
+            df["primary_position"].isin(pitcher_positions)
+        ]
+
+    elif "pos" in df.columns:
+        df = df[
+            df["pos"].isna() |
+            df["pos"].isin(pitcher_positions)
+        ]
+
+    # If none of these columns exist, we do NOT filter at all (fail open)
+
+    names = (
+        df["name"]
+        .dropna()
+        .unique()
+        .tolist()
+    )
+
     return sorted(names)
 
-PITCHER_LIST = load_players()
+PITCHER_LIST = load_pitchers_heuristic()
 
 # =============================
 # Styling helper (dark-mode zebra rows)
@@ -51,7 +87,6 @@ def build_pitch_mix(df):
     if df is None or df.empty:
         return pd.DataFrame()
 
-    # Exclude pitch outs
     df = df[df["pitch_name"] != "PO"]
 
     mix = (
@@ -140,7 +175,7 @@ with c3:
     season = st.selectbox(
         "Season",
         options=[2025, 2026],
-        index=0,  # default = 2025
+        index=0,
     )
 
 with c4:
