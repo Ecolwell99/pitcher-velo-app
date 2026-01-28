@@ -26,62 +26,8 @@ def load_players():
 PITCHER_LIST = load_players()
 
 # =============================
-# Matchup header
+# Dark-mode zebra rows
 # =============================
-st.markdown("### Matchup")
-
-c1, c2, c3 = st.columns([3, 3, 1])
-
-with c1:
-    away_select = st.selectbox(
-        "Away Pitcher",
-        options=PITCHER_LIST,
-        index=PITCHER_LIST.index("Zac Gallen") if "Zac Gallen" in PITCHER_LIST else 0,
-    )
-
-    away_manual = ""
-    if away_select not in PITCHER_LIST:
-        away_manual = st.text_input(
-            "Away pitcher not found? Enter manually (First Last)",
-            placeholder="First Last",
-        )
-
-with c2:
-    home_select = st.selectbox(
-        "Home Pitcher",
-        options=PITCHER_LIST,
-        index=PITCHER_LIST.index("Gerrit Cole") if "Gerrit Cole" in PITCHER_LIST else 0,
-    )
-
-    home_manual = ""
-    if home_select not in PITCHER_LIST:
-        home_manual = st.text_input(
-            "Home pitcher not found? Enter manually (First Last)",
-            placeholder="First Last",
-        )
-
-with c3:
-    run = st.button("Run Matchup")
-
-st.divider()
-
-# =============================
-# Resolve pitcher names
-# =============================
-def resolve_name(selected, manual):
-    name = manual.strip() if manual.strip() else selected
-    if " " not in name:
-        return None, None
-    return name.split(" ", 1)
-
-away_first, away_last = resolve_name(away_select, away_manual)
-home_first, home_last = resolve_name(home_select, home_manual)
-
-# =============================
-# Helpers
-# =============================
-MIN_PITCHES = 1
-
 def dark_zebra(df):
     return df.style.apply(
         lambda _: [
@@ -90,6 +36,17 @@ def dark_zebra(df):
         ],
         axis=0
     )
+
+# =============================
+# Helpers
+# =============================
+MIN_PITCHES = 1
+
+def parse_name(full: str):
+    full = (full or "").strip()
+    if " " not in full:
+        return None, None
+    return full.split(" ", 1)
 
 def build_pitch_mix(df):
     if df is None or df.empty:
@@ -113,6 +70,7 @@ def build_pitch_mix(df):
     mix["usage_pct"] = mix["pitches"] / total * 100
     mix = mix.sort_values("usage_pct", ascending=False)
 
+    # 1 decimal, consistent display
     mix["Usage %"] = mix["usage_pct"].map(lambda x: f"{x:.1f}")
     mix["Avg MPH"] = mix["avg_mph"].map(lambda x: f"{x:.1f}")
     mix = mix.rename(columns={"pitch_name": "Pitch Type"})
@@ -136,19 +94,18 @@ def build_count_tables(df):
                 continue
 
             cutoff = round(float(np.mean(speeds)), 1)
-            over = (speeds >= cutoff).mean()
+            over = float((speeds >= cutoff).mean())
 
-            bias = (
-                f"{round(over*100,1)}% Over {cutoff:.1f} MPH"
-                if over >= 0.5
-                else f"{round((1-over)*100,1)}% Under {cutoff:.1f} MPH"
-            )
+            if over >= 0.5:
+                bias = f"{round(over*100,1)}% Over {cutoff:.1f} MPH"
+            else:
+                bias = f"{round((1-over)*100,1)}% Under {cutoff:.1f} MPH"
 
             rows.append({"Count": count, "Bias": bias})
 
         if rows:
             df_out = pd.DataFrame(rows)
-            df_out["sort"] = df_out["Count"].apply(lambda x: int(x.split("-")[0])*10 + int(x.split("-")[1]))
+            df_out["sort"] = df_out["Count"].apply(lambda x: int(x.split("-")[0]) * 10 + int(x.split("-")[1]))
             df_out = df_out.sort_values("sort").drop(columns="sort").reset_index(drop=True)
             output[label] = df_out
         else:
@@ -157,14 +114,64 @@ def build_count_tables(df):
     return output["LHB"], output["RHB"]
 
 # =============================
+# Session state defaults
+# =============================
+if "away_name" not in st.session_state:
+    st.session_state["away_name"] = "Zac Gallen"
+if "home_name" not in st.session_state:
+    st.session_state["home_name"] = "Gerrit Cole"
+
+# Dropdown helper callbacks (fills text input)
+def set_away_from_dropdown():
+    st.session_state["away_name"] = st.session_state["away_pick"]
+
+def set_home_from_dropdown():
+    st.session_state["home_name"] = st.session_state["home_pick"]
+
+# =============================
+# Matchup header (TOP)
+# =============================
+st.markdown("### Matchup")
+
+c1, c2, c3 = st.columns([3, 3, 1])
+
+with c1:
+    st.text_input("Away Pitcher (type any name)", key="away_name", placeholder="First Last")
+    st.selectbox(
+        "Pick from list (optional)",
+        options=PITCHER_LIST,
+        key="away_pick",
+        index=PITCHER_LIST.index("Zac Gallen") if "Zac Gallen" in PITCHER_LIST else 0,
+        on_change=set_away_from_dropdown,
+    )
+
+with c2:
+    st.text_input("Home Pitcher (type any name)", key="home_name", placeholder="First Last")
+    st.selectbox(
+        "Pick from list (optional)",
+        options=PITCHER_LIST,
+        key="home_pick",
+        index=PITCHER_LIST.index("Gerrit Cole") if "Gerrit Cole" in PITCHER_LIST else 0,
+        on_change=set_home_from_dropdown,
+    )
+
+with c3:
+    run = st.button("Run Matchup")
+
+st.divider()
+
+# =============================
 # Run matchup
 # =============================
 if not run:
-    st.info("Select pitchers (or enter manually) and click **Run Matchup**.")
+    st.info("Type pitcher names (or pick from list) and click **Run Matchup**.")
     st.stop()
 
+away_first, away_last = parse_name(st.session_state["away_name"])
+home_first, home_last = parse_name(st.session_state["home_name"])
+
 if not away_first or not home_first:
-    st.error("Please enter valid pitcher names as: First Last")
+    st.error("Please enter pitcher names as: First Last")
     st.stop()
 
 with st.spinner("Pulling Statcast data..."):
@@ -172,7 +179,7 @@ with st.spinner("Pulling Statcast data..."):
     home_df = get_pitcher_data(home_first, home_last, 2025)
 
 # =============================
-# Display
+# Display — Away Pitcher
 # =============================
 st.subheader("✈️ Away Pitcher")
 st.markdown(f"**{away_first} {away_last}**")
@@ -193,6 +200,9 @@ with c5:
 
 st.divider()
 
+# =============================
+# Display — Home Pitcher
+# =============================
 st.subheader("🏠 Home Pitcher")
 st.markdown(f"**{home_first} {home_last}**")
 
