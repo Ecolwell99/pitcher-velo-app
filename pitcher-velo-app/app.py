@@ -63,9 +63,9 @@ def parse_name(full):
     return full.split(" ", 1)
 
 def build_pitch_mix(df):
-    """
-    Season-level pitch mix (overall, no handedness split)
-    """
+    # Exclude pitch outs
+    df = df[df["pitch_name"] != "PO"]
+
     mix = (
         df.groupby("pitch_name")
           .agg(
@@ -81,6 +81,7 @@ def build_pitch_mix(df):
 
     mix = mix.sort_values("Usage %", ascending=False)
     mix = mix.rename(columns={"pitch_name": "Pitch Type"})
+
     return mix[["Pitch Type", "Usage %", "Avg MPH"]]
 
 def build_count_tables(df):
@@ -157,7 +158,7 @@ st.markdown(f"**{away_pitcher}**")
 
 away_mix = build_pitch_mix(away_df)
 st.markdown("#### Pitch Mix (Season Overall)")
-st.dataframe(away_mix, use_container_width=True)
+st.dataframe(away_mix, use_container_width=True, hide_index=True)
 
 away_lhb, away_rhb = build_count_tables(away_df)
 
@@ -165,11 +166,11 @@ c4, c5 = st.columns(2)
 
 with c4:
     st.markdown("### 🟥 vs Left-Handed Batters")
-    st.dataframe(away_lhb, use_container_width=True)
+    st.dataframe(away_lhb, use_container_width=True, hide_index=True)
 
 with c5:
     st.markdown("### 🟦 vs Right-Handed Batters")
-    st.dataframe(away_rhb, use_container_width=True)
+    st.dataframe(away_rhb, use_container_width=True, hide_index=True)
 
 st.divider()
 
@@ -181,7 +182,7 @@ st.markdown(f"**{home_pitcher}**")
 
 home_mix = build_pitch_mix(home_df)
 st.markdown("#### Pitch Mix (Season Overall)")
-st.dataframe(home_mix, use_container_width=True)
+st.dataframe(home_mix, use_container_width=True, hide_index=True)
 
 home_lhb, home_rhb = build_count_tables(home_df)
 
@@ -189,9 +190,9 @@ c6, c7 = st.columns(2)
 
 with c6:
     st.markdown("### 🟥 vs Left-Handed Batters")
-    st.dataframe(home_lhb, use_container_width=True)
+    st.dataframe(home_lhb, use_container_width=True, hide_index=True)
 
 with c7:
     st.markdown("### 🟦 vs Right-Handed Batters")
-    st.dataframe(home_rhb, use_container_width=True)
+    st.dataframe(home_rhb, use_container_width=True, hide_index=True)
 
