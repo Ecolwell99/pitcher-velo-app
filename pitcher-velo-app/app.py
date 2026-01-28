@@ -23,7 +23,7 @@ def load_players():
     names = df["name"].dropna().unique().tolist()
     return sorted(names)
 
-PLAYER_LIST = load_players()
+PITCHER_LIST = load_players()
 
 # =============================
 # Matchup header (TOP)
@@ -35,15 +35,15 @@ c1, c2, c3 = st.columns([3, 3, 1])
 with c1:
     away_pitcher = st.selectbox(
         "Away Pitcher",
-        options=PLAYER_LIST,
-        index=PITCHER_LIST.index("Zac Gallen") if "Zac Gallen" in PLAYER_LIST else 0,
+        options=PITCHER_LIST,
+        index=PITCHER_LIST.index("Zac Gallen") if "Zac Gallen" in PITCHER_LIST else 0,
     )
 
 with c2:
     home_pitcher = st.selectbox(
         "Home Pitcher",
-        options=PLAYER_LIST,
-        index=PITCHER_LIST.index("Gerrit Cole") if "Gerrit Cole" in PLAYER_LIST else 0,
+        options=PITCHER_LIST,
+        index=PITCHER_LIST.index("Gerrit Cole") if "Gerrit Cole" in PITCHER_LIST else 0,
     )
 
 with c3:
@@ -80,7 +80,6 @@ def build_pitch_mix(df):
     if df is None or df.empty:
         return pd.DataFrame()
 
-    # Exclude pitch outs
     df = df[df["pitch_name"] != "PO"]
 
     mix = (
@@ -96,13 +95,9 @@ def build_pitch_mix(df):
     if total == 0:
         return pd.DataFrame()
 
-    # Numeric usage for sorting
     mix["usage_pct"] = mix["pitches"] / total * 100
-
-    # Sort MOST → LEAST usage
     mix = mix.sort_values("usage_pct", ascending=False)
 
-    # Format for display (1 decimal)
     mix["Usage %"] = mix["usage_pct"].map(lambda x: f"{x:.1f}")
     mix["Avg MPH"] = mix["avg_mph"].map(lambda x: f"{x:.1f}")
 
