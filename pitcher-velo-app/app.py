@@ -12,15 +12,13 @@ st.title("⚾ Pitcher Matchup — Velocity Bias by Count")
 st.caption("Public Statcast data • 2025 season")
 
 # =============================
-# Load & cache pitcher list (FAST, pitchers only)
+# Load & cache player list (SAFE — no schema assumptions)
 # =============================
 @st.cache_data(show_spinner=False)
-def load_pitchers():
+def load_players():
     df = chadwick_register()
 
-    # Keep MLB pitchers only
-    df = df[df["mlb_pos"] == "P"]
-
+    # Build name safely without assuming position columns
     df = df.assign(
         name=df["name_first"].fillna("") + " " + df["name_last"].fillna("")
     )
@@ -34,7 +32,7 @@ def load_pitchers():
 
     return sorted(names)
 
-PITCHER_LIST = load_pitchers()
+PLAYER_LIST = load_players()
 
 # =============================
 # Matchup header (TOP)
@@ -46,15 +44,15 @@ c1, c2, c3 = st.columns([3, 3, 1])
 with c1:
     away_pitcher = st.selectbox(
         "Away Pitcher",
-        options=PITCHER_LIST,
-        index=PITCHER_LIST.index("Zac Gallen") if "Zac Gallen" in PITCHER_LIST else 0,
+        options=PLAYER_LIST,
+        index=PLAYER_LIST.index("Zac Gallen") if "Zac Gallen" in PLAYER_LIST else 0,
     )
 
 with c2:
     home_pitcher = st.selectbox(
         "Home Pitcher",
-        options=PITCHER_LIST,
-        index=PITCHER_LIST.index("Gerrit Cole") if "Gerrit Cole" in PITCHER_LIST else 0,
+        options=PLAYER_LIST,
+        index=PLAYER_LIST.index("Gerrit Cole") if "Gerrit Cole" in PLAYER_LIST else 0,
     )
 
 with c3:
@@ -71,9 +69,15 @@ MIN_PITCHES = 1
 # Helpers
 # =============================
 def parse_name(full):
+    if not full or " " not in full:
+        return None, None
     return full.split(" ", 1)
 
 def build_pitch_mix(df):
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    # Exclude pitch outs
     df = df[df["pitch_name"] != "PO"]
 
     mix = (
@@ -86,6 +90,9 @@ def build_pitch_mix(df):
     )
 
     total = mix["pitches"].sum()
+    if total == 0:
+        return pd.DataFrame()
+
     mix["Usage %"] = (mix["pitches"] / total * 100).round(1)
     mix["Avg MPH"] = mix["avg_mph"].round(1)
 
@@ -95,6 +102,9 @@ def build_pitch_mix(df):
     return mix[["Pitch Type", "Usage %", "Avg MPH"]]
 
 def build_count_tables(df):
+    if df is None or df.empty:
+        return pd.DataFrame(), pd.DataFrame()
+
     df = df[df["stand"].isin(["R", "L"])]
     output = {}
 
@@ -153,6 +163,10 @@ if not run:
 away_first, away_last = parse_name(away_pitcher)
 home_first, home_last = parse_name(home_pitcher)
 
+if not away_first or not home_first:
+    st.error("Please select valid pitcher names.")
+    st.stop()
+
 with st.spinner("Pulling Statcast data for both pitchers..."):
     away_df = get_pitcher_data(away_first, away_last, 2025)
     home_df = get_pitcher_data(home_first, home_last, 2025)
@@ -172,11 +186,17 @@ c4, c5 = st.columns(2)
 
 with c4:
     st.markdown("**[LHB]**")
-    st.dataframe(away_lhb, use_container_width=True, hide_index=True)
+    if away_lhb.empty:
+        st.info("No data vs LHB.")
+    else:
+        st.dataframe(away_lhb, use_container_width=True, hide_index=True)
 
 with c5:
     st.markdown("**[RHB]**")
-    st.dataframe(away_rhb, use_container_width=True, hide_index=True)
+    if away_rhb.empty:
+        st.info("No data vs RHB.")
+    else:
+        st.dataframe(away_rhb, use_container_width=True, hide_index=True)
 
 st.divider()
 
@@ -195,9 +215,15 @@ c6, c7 = st.columns(2)
 
 with c6:
     st.markdown("**[LHB]**")
-    st.dataframe(home_lhb, use_container_width=True, hide_index=True)
+    if home_lhb.empty:
+        st.info("No data vs LHB.")
+    else:
+        st.dataframe(home_lhb, use_container_width=True, hide_index=True)
 
 with c7:
     st.markdown("**[RHB]**")
-    st.dataframe(home_rhb, use_container_width=True, hide_index=True)
+    if home_rhb.empty:
+        st.info("No data vs RHB.")
+    else:
+        st.dataframe(home_rhb, use_container_width=True, hide_index=True)
 
