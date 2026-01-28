@@ -36,14 +36,14 @@ with c1:
     away_pitcher = st.selectbox(
         "Away Pitcher",
         options=PLAYER_LIST,
-        index=PLAYER_LIST.index("Zac Gallen") if "Zac Gallen" in PLAYER_LIST else 0,
+        index=PITCHER_LIST.index("Zac Gallen") if "Zac Gallen" in PLAYER_LIST else 0,
     )
 
 with c2:
     home_pitcher = st.selectbox(
         "Home Pitcher",
         options=PLAYER_LIST,
-        index=PLAYER_LIST.index("Gerrit Cole") if "Gerrit Cole" in PLAYER_LIST else 0,
+        index=PITCHER_LIST.index("Gerrit Cole") if "Gerrit Cole" in PLAYER_LIST else 0,
     )
 
 with c3:
@@ -96,15 +96,16 @@ def build_pitch_mix(df):
     if total == 0:
         return pd.DataFrame()
 
-    # Compute values
-    mix["Usage %"] = mix["pitches"] / total * 100
-    mix["Avg MPH"] = mix["avg_mph"]
+    # Numeric usage for sorting
+    mix["usage_pct"] = mix["pitches"] / total * 100
 
-    # 🔑 FORCE DISPLAY FORMATTING (STRINGS, 1 DECIMAL)
-    mix["Usage %"] = mix["Usage %"].map(lambda x: f"{x:.1f}")
-    mix["Avg MPH"] = mix["Avg MPH"].map(lambda x: f"{x:.1f}")
+    # Sort MOST → LEAST usage
+    mix = mix.sort_values("usage_pct", ascending=False)
 
-    mix = mix.sort_values("Usage %", ascending=False)
+    # Format for display (1 decimal)
+    mix["Usage %"] = mix["usage_pct"].map(lambda x: f"{x:.1f}")
+    mix["Avg MPH"] = mix["avg_mph"].map(lambda x: f"{x:.1f}")
+
     mix = mix.rename(columns={"pitch_name": "Pitch Type"})
 
     return mix[["Pitch Type", "Usage %", "Avg MPH"]]
