@@ -7,9 +7,15 @@ from data import get_pitcher_data
 # =============================
 # Page setup
 # =============================
-st.set_page_config(page_title="Pitcher Matchup — Velocity Bias", layout="wide")
-st.title("⚾ Pitcher Matchup — Velocity Bias by Count")
-st.caption("Public Statcast data")
+st.set_page_config(page_title="Pitcher Velocity Profiles", layout="wide")
+
+st.markdown(
+    """
+    # Pitcher Velocity Profiles
+    *Velocity behavior by count, inning, and handedness (Statcast)*
+    """,
+    unsafe_allow_html=True,
+)
 
 # =============================
 # Load & cache pitcher list (heuristic, safe)
@@ -36,7 +42,7 @@ def load_pitchers():
 PITCHER_LIST = load_pitchers()
 
 # =============================
-# Styling helper (dark zebra rows)
+# Styling helper
 # =============================
 def dark_zebra(df):
     return df.style.apply(
@@ -133,7 +139,7 @@ def build_count_tables(df):
 # =============================
 st.markdown("### Matchup")
 
-c1, c2, c3, c4 = st.columns([3, 3, 2, 1])
+c1, c2, c3 = st.columns([3, 3, 2])
 
 with c1:
     away_pitcher = st.selectbox("Away Pitcher", PITCHER_LIST)
@@ -144,7 +150,9 @@ with c2:
 with c3:
     season = st.selectbox("Season", [2025, 2026])
 
-with c4:
+# Run button on its own row
+c_run = st.columns([6, 1])
+with c_run[1]:
     run = st.button("Run Matchup")
 
 st.divider()
@@ -167,7 +175,7 @@ away_groups = split_by_inning(away_raw)
 home_groups = split_by_inning(home_raw)
 
 # =============================
-# Tabs (DEFINED)
+# Tabs
 # =============================
 tabs = st.tabs(["All", "Early (1–2)", "Middle (3–4)", "Late (5+)"])
 
@@ -176,46 +184,41 @@ for tab, key in zip(
     ["All", "Early (1–2)", "Middle (3–4)", "Late (5+)"]
 ):
     with tab:
-        st.subheader(f"✈️ Away Pitcher — {key}")
-        st.markdown(f"**{away_pitcher} — {season}**")
+        # Away
+        st.markdown(f"## {away_pitcher}")
+        st.markdown(f"*Away Pitcher • {key} • {season}*")
 
         with st.expander("Show Pitch Mix (Season Overall)"):
-            st.dataframe(
-                dark_zebra(build_pitch_mix(away_groups[key])),
-                use_container_width=True,
-                hide_index=True
-            )
+            st.dataframe(dark_zebra(build_pitch_mix(away_groups[key])), use_container_width=True, hide_index=True)
 
         lhb, rhb = build_count_tables(away_groups[key])
-        c5, c6 = st.columns(2)
+        c4, c5 = st.columns(2)
 
-        with c5:
-            st.markdown("**[LHB]**")
+        with c4:
+            st.markdown("**vs LHB**")
             st.dataframe(dark_zebra(lhb), use_container_width=True, hide_index=True)
 
-        with c6:
-            st.markdown("**[RHB]**")
+        with c5:
+            st.markdown("**vs RHB**")
             st.dataframe(dark_zebra(rhb), use_container_width=True, hide_index=True)
 
         st.divider()
 
-        st.subheader(f"🏠 Home Pitcher — {key}")
-        st.markdown(f"**{home_pitcher} — {season}**")
+        # Home
+        st.markdown(f"## {home_pitcher}")
+        st.markdown(f"*Home Pitcher • {key} • {season}*")
 
         with st.expander("Show Pitch Mix (Season Overall)"):
-            st.dataframe(
-                dark_zebra(build_pitch_mix(home_groups[key])),
-                use_container_width=True,
-                hide_index=True
-            )
+            st.dataframe(dark_zebra(build_pitch_mix(home_groups[key])), use_container_width=True, hide_index=True)
 
         lhb, rhb = build_count_tables(home_groups[key])
-        c7, c8 = st.columns(2)
+        c6, c7 = st.columns(2)
 
-        with c7:
-            st.markdown("**[LHB]**")
+        with c6:
+            st.markdown("**vs LHB**")
             st.dataframe(dark_zebra(lhb), use_container_width=True, hide_index=True)
 
-        with c8:
-            st.markdown("**[RHB]**")
+        with c7:
+            st.markdown("**vs RHB**")
             st.dataframe(dark_zebra(rhb), use_container_width=True, hide_index=True)
+
