@@ -24,13 +24,11 @@ st.markdown(
 @st.cache_data(show_spinner=False)
 def load_registry():
     df = chadwick_register().copy()
-
     df["name"] = (
         df.get("name_first", "").fillna("") + " " +
         df.get("name_last", "").fillna("")
     ).str.strip()
 
-    # Normalize MLBAM id column (varies by version)
     for col in ["key_mlbam", "mlbam_id", "key_mlb"]:
         if col in df.columns:
             df["mlbam_id"] = df[col]
@@ -42,12 +40,8 @@ def load_registry():
 
 REGISTRY = load_registry()
 
-# =============================
-# Build pitcher list (simple, stable)
-# =============================
 @st.cache_data(show_spinner=False)
 def load_pitchers():
-    # Keep it simple: return all registry names (avoid breaking filters)
     return sorted(REGISTRY["name"].dropna().unique().tolist())
 
 PITCHER_LIST = load_pitchers()
@@ -62,28 +56,19 @@ def slugify(name: str) -> str:
 
 def savant_url(name: str):
     row = REGISTRY[REGISTRY["name"] == name]
-    if row.empty:
+    if row.empty or pd.isna(row.iloc[0]["mlbam_id"]):
         return None
-
-    mlbam_id = row.iloc[0]["mlbam_id"]
-    if pd.isna(mlbam_id):
-        return None
-
-    return f"https://baseballsavant.mlb.com/savant-player/{slugify(name)}-{int(mlbam_id)}"
+    return f"https://baseballsavant.mlb.com/savant-player/{slugify(name)}-{int(row.iloc[0]['mlbam_id'])}"
 
 def render_pitcher_header(name: str, context: str):
-    """
-    Big plain name + small link icon (so the link doesn't dominate the UI).
-    """
     url = savant_url(name)
-
     if url:
         st.markdown(
             f"""
             <div style="display:flex; align-items:center; gap:10px;">
                 <h2 style="margin:0;">{name}</h2>
                 <a href="{url}" target="_blank"
-                   style="text-decoration:none; font-size:18px; opacity:0.85;">
+                   style="text-decoration:none; font-size:18px; opacity:0.8;">
                     🔗
                 </a>
             </div>
@@ -105,8 +90,6 @@ def dark_zebra(df):
     )
 
 def parse_name(full):
-    if not full or " " not in full:
-        return None, None
     return full.split(" ", 1)
 
 def split_by_inning(df):
@@ -118,37 +101,31 @@ def split_by_inning(df):
     }
 
 def build_pitch_mix(df):
-    if df is None or df.empty:
+    if df.empty:
         return pd.DataFrame()
 
-    # Exclude pitchouts
     df = df[df["pitch_name"] != "PO"]
 
     mix = (
         df.groupby("pitch_name")
-          .agg(
-              pitches=("release_speed", "count"),
-              avg_mph=("release_speed", "mean"),
-          )
+          .agg(pitches=("release_speed", "count"),
+               avg_mph=("release_speed", "mean"))
           .reset_index()
     )
 
     total = mix["pitches"].sum()
-    if total == 0:
-        return pd.DataFrame()
-
     mix["usage_pct"] = mix["pitches"] / total * 100
     mix = mix.sort_values("usage_pct", ascending=False)
 
-    # Force 1 decimal, no trailing float junk
     mix["Usage %"] = mix["usage_pct"].map(lambda x: f"{x:.1f}")
     mix["Avg MPH"] = mix["avg_mph"].map(lambda x: f"{x:.1f}")
 
-    mix = mix.rename(columns={"pitch_name": "Pitch Type"})
-    return mix[["Pitch Type", "Usage %", "Avg MPH"]]
+    return mix.rename(columns={"pitch_name": "Pitch Type"})[
+        ["Pitch Type", "Usage %", "Avg MPH"]
+    ]
 
 def build_count_tables(df):
-    if df is None or df.empty:
+    if df.empty:
         return pd.DataFrame(), pd.DataFrame()
 
     df = df[df["stand"].isin(["R", "L"])]
@@ -161,20 +138,20 @@ def build_count_tables(df):
             if len(speeds) < MIN_PITCHES:
                 continue
 
-            cutoff = round(float(np.mean(speeds)), 1)
-            over = float((speeds >= cutoff).mean())
+            cutoff = round(np.mean(speeds), 1)
+            over = (speeds >= cutoff).mean()
 
-            if over >= 0.5:
-                bias = f"{round(over*100,1)}% Over {cutoff:.1f} MPH"
-            else:
-                bias = f"{round((1-over)*100,1)}% Under {cutoff:.1f} MPH"
-
+            bias = (
+                f"{round(over*100,1)}% Over {cutoff:.1f} MPH"
+                if over >= 0.5
+                else f"{round((1-over)*100,1)}% Under {cutoff:.1f} MPH"
+            )
             rows.append({"Count": count, "Bias": bias})
 
         if rows:
             df_out = pd.DataFrame(rows)
             df_out["sort"] = df_out["Count"].apply(
-                lambda x: int(x.split("-")[0]) * 10 + int(x.split("-")[1])
+                lambda x: int(x.split("-")[0])*10 + int(x.split("-")[1])
             )
             out[label] = df_out.sort_values("sort").drop(columns="sort").reset_index(drop=True)
         else:
@@ -183,10 +160,11 @@ def build_count_tables(df):
     return out["LHB"], out["RHB"]
 
 # =============================
-# Controls
+# Matchup (FIXED LAYOUT)
 # =============================
 st.markdown("### Matchup")
 
+# Inputs row
 c1, c2, c3 = st.columns([3, 3, 2])
 
 with c1:
@@ -198,10 +176,10 @@ with c2:
 with c3:
     season = st.selectbox("Season", [2025, 2026])
 
-# Run button on its own row (right aligned)
-c_run = st.columns([6, 1])
-with c_run[1]:
-    run = st.button("Run Matchup")
+# Action row (tight + aligned)
+c_spacer, c_button = st.columns([8, 1])
+with c_button:
+    run = st.button("Run Matchup", use_container_width=True)
 
 st.divider()
 
@@ -209,61 +187,32 @@ st.divider()
 # Run once
 # =============================
 if not run:
-    st.info("Select pitchers and season, then click **Run Matchup**.")
     st.stop()
 
 away_first, away_last = parse_name(away_pitcher)
 home_first, home_last = parse_name(home_pitcher)
 
-with st.spinner("Pulling Statcast data..."):
-    away_raw = get_pitcher_data(away_first, away_last, season)
-    home_raw = get_pitcher_data(home_first, home_last, season)
+away_raw = get_pitcher_data(away_first, away_last, season)
+home_raw = get_pitcher_data(home_first, home_last, season)
 
 away_groups = split_by_inning(away_raw)
 home_groups = split_by_inning(home_raw)
 
-# =============================
-# Tabs
-# =============================
 tabs = st.tabs(["All", "Early (1–2)", "Middle (3–4)", "Late (5+)"])
 
-for tab, key in zip(tabs, ["All", "Early (1–2)", "Middle (3–4)", "Late (5+)"]):
+for tab, key in zip(tabs, away_groups.keys()):
     with tab:
-        # Away
         render_pitcher_header(away_pitcher, f"Away Pitcher • {key} • {season}")
-
-        with st.expander("Show Pitch Mix (Season Overall)"):
-            st.dataframe(dark_zebra(build_pitch_mix(away_groups[key])),
-                         use_container_width=True, hide_index=True)
-
         lhb, rhb = build_count_tables(away_groups[key])
         c4, c5 = st.columns(2)
-
-        with c4:
-            st.markdown("**vs LHB**")
-            st.dataframe(dark_zebra(lhb), use_container_width=True, hide_index=True)
-
-        with c5:
-            st.markdown("**vs RHB**")
-            st.dataframe(dark_zebra(rhb), use_container_width=True, hide_index=True)
+        c4.dataframe(dark_zebra(lhb), use_container_width=True, hide_index=True)
+        c5.dataframe(dark_zebra(rhb), use_container_width=True, hide_index=True)
 
         st.divider()
 
-        # Home
         render_pitcher_header(home_pitcher, f"Home Pitcher • {key} • {season}")
-
-        with st.expander("Show Pitch Mix (Season Overall)"):
-            st.dataframe(dark_zebra(build_pitch_mix(home_groups[key])),
-                         use_container_width=True, hide_index=True)
-
         lhb, rhb = build_count_tables(home_groups[key])
         c6, c7 = st.columns(2)
-
-        with c6:
-            st.markdown("**vs LHB**")
-            st.dataframe(dark_zebra(lhb), use_container_width=True, hide_index=True)
-
-        with c7:
-            st.markdown("**vs RHB**")
-            st.dataframe(dark_zebra(rhb), use_container_width=True, hide_index=True)
+        c6.dataframe(dark_zebra(lhb), use_container_width=True, hide_index=True)
+        c7.dataframe(dark_zebra(rhb), use_container_width=True, hide_index=True)
 
