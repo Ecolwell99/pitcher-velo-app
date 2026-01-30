@@ -160,11 +160,10 @@ def build_count_tables(df):
     return out["LHB"], out["RHB"]
 
 # =============================
-# Matchup (FIXED LAYOUT)
+# Matchup
 # =============================
 st.markdown("### Matchup")
 
-# Inputs row
 c1, c2, c3 = st.columns([3, 3, 2])
 
 with c1:
@@ -176,16 +175,12 @@ with c2:
 with c3:
     season = st.selectbox("Season", [2025, 2026])
 
-# Action row (tight + aligned)
 c_spacer, c_button = st.columns([8, 1])
 with c_button:
     run = st.button("Run Matchup", use_container_width=True)
 
 st.divider()
 
-# =============================
-# Run once
-# =============================
 if not run:
     st.stop()
 
@@ -203,16 +198,50 @@ tabs = st.tabs(["All", "Early (1–2)", "Middle (3–4)", "Late (5+)"])
 for tab, key in zip(tabs, away_groups.keys()):
     with tab:
         render_pitcher_header(away_pitcher, f"Away Pitcher • {key} • {season}")
+
         lhb, rhb = build_count_tables(away_groups[key])
         c4, c5 = st.columns(2)
-        c4.dataframe(dark_zebra(lhb), use_container_width=True, hide_index=True)
-        c5.dataframe(dark_zebra(rhb), use_container_width=True, hide_index=True)
+
+        with c4:
+            st.markdown("**vs LHB**")
+            st.dataframe(
+                dark_zebra(lhb),
+                use_container_width=True,
+                hide_index=True,
+                height=None,   # 👈 NO SCROLL
+            )
+
+        with c5:
+            st.markdown("**vs RHB**")
+            st.dataframe(
+                dark_zebra(rhb),
+                use_container_width=True,
+                hide_index=True,
+                height=None,   # 👈 NO SCROLL
+            )
 
         st.divider()
 
         render_pitcher_header(home_pitcher, f"Home Pitcher • {key} • {season}")
+
         lhb, rhb = build_count_tables(home_groups[key])
         c6, c7 = st.columns(2)
-        c6.dataframe(dark_zebra(lhb), use_container_width=True, hide_index=True)
-        c7.dataframe(dark_zebra(rhb), use_container_width=True, hide_index=True)
+
+        with c6:
+            st.markdown("**vs LHB**")
+            st.dataframe(
+                dark_zebra(lhb),
+                use_container_width=True,
+                hide_index=True,
+                height=None,   # 👈 NO SCROLL
+            )
+
+        with c7:
+            st.markdown("**vs RHB**")
+            st.dataframe(
+                dark_zebra(rhb),
+                use_container_width=True,
+                hide_index=True,
+                height=None,   # 👈 NO SCROLL
+            )
 
