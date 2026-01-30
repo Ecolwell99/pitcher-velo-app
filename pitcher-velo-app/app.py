@@ -97,26 +97,6 @@ def split_by_inning(df):
         "Late (5+)": df[df["inning"] >= 5],
     }
 
-def build_pitch_mix(df):
-    if df.empty:
-        return pd.DataFrame()
-
-    df = df[df["pitch_name"] != "PO"]
-    mix = (
-        df.groupby("pitch_name")
-        .agg(pitches=("release_speed", "count"),
-             avg_mph=("release_speed", "mean"))
-        .reset_index()
-    )
-
-    total = mix["pitches"].sum()
-    mix["Usage %"] = (mix["pitches"] / total * 100).round(1).astype(str)
-    mix["Avg MPH"] = mix["avg_mph"].round(1).astype(str)
-    mix = mix.sort_values("Usage %", ascending=False)
-    return mix.rename(columns={"pitch_name": "Pitch Type"})[
-        ["Pitch Type", "Usage %", "Avg MPH"]
-    ]
-
 def build_bias_tables(df):
     if df.empty:
         return pd.DataFrame(), pd.DataFrame()
@@ -129,13 +109,16 @@ def build_bias_tables(df):
             speeds = g["release_speed"].dropna().to_numpy()
             if len(speeds) < MIN_PITCHES:
                 continue
+
             cutoff = round(np.mean(speeds), 1)
             over = (speeds >= cutoff).mean()
+
             bias = (
                 f"{round(over*100,1)}% Over {cutoff:.1f} MPH"
                 if over >= 0.5
                 else f"{round((1-over)*100,1)}% Under {cutoff:.1f} MPH"
             )
+
             rows.append({"Count": count, "Bias": bias})
 
         df_out = pd.DataFrame(rows)
@@ -145,7 +128,13 @@ def build_bias_tables(df):
         df_out["sort"] = df_out["Count"].apply(
             lambda x: int(x.split("-")[0])*10 + int(x.split("-")[1])
         )
-        return df_out.sort_values("sort").drop(columns="sort").reset_index(drop=True)
+
+        return (
+            df_out
+            .sort_values("sort")
+            .drop(columns="sort")
+            .reset_index(drop=True)  # 🔑 REMOVE INDEX
+        )
 
     return make_side("L"), make_side("R")
 
@@ -179,15 +168,13 @@ for tab, key in zip(tabs, away_groups.keys()):
     with tab:
         render_pitcher_header(away, f"Away Pitcher • {key} • {season}")
         lhb, rhb = build_bias_tables(away_groups[key])
-        c4, c5 = st.columns(2)
-        c4.table(zebra(lhb))
-        c5.table(zebra(rhb))
+        st.columns(2)[0].table(zebra(lhb))
+        st.columns(2)[1].table(zebra(rhb))
 
         st.divider()
 
         render_pitcher_header(home, f"Home Pitcher • {key} • {season}")
         lhb, rhb = build_bias_tables(home_groups[key])
-        c6, c7 = st.columns(2)
-        c6.table(zebra(lhb))
-        c7.table(zebra(rhb))
+        st.columns(2)[0].table(zebra(lhb))
+        st.columns(2)[1].table(zebra(rhb))
 
