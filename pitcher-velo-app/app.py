@@ -201,24 +201,8 @@ for tab, key in zip(tabs, away_groups.keys()):
 
         lhb, rhb = build_count_tables(away_groups[key])
         c4, c5 = st.columns(2)
-
-        with c4:
-            st.markdown("**vs LHB**")
-            st.dataframe(
-                dark_zebra(lhb),
-                use_container_width=True,
-                hide_index=True,
-                height=None,   # 👈 NO SCROLL
-            )
-
-        with c5:
-            st.markdown("**vs RHB**")
-            st.dataframe(
-                dark_zebra(rhb),
-                use_container_width=True,
-                hide_index=True,
-                height=None,   # 👈 NO SCROLL
-            )
+        c4.dataframe(dark_zebra(lhb), use_container_width=True, hide_index=True)
+        c5.dataframe(dark_zebra(rhb), use_container_width=True, hide_index=True)
 
         st.divider()
 
@@ -226,22 +210,6 @@ for tab, key in zip(tabs, away_groups.keys()):
 
         lhb, rhb = build_count_tables(home_groups[key])
         c6, c7 = st.columns(2)
-
-        with c6:
-            st.markdown("**vs LHB**")
-            st.dataframe(
-                dark_zebra(lhb),
-                use_container_width=True,
-                hide_index=True,
-                height=None,   # 👈 NO SCROLL
-            )
-
-        with c7:
-            st.markdown("**vs RHB**")
-            st.dataframe(
-                dark_zebra(rhb),
-                use_container_width=True,
-                hide_index=True,
-                height=None,   # 👈 NO SCROLL
-            )
+        c6.dataframe(dark_zebra(lhb), use_container_width=True, hide_index=True)
+        c7.dataframe(dark_zebra(rhb), use_container_width=True, hide_index=True)
 
