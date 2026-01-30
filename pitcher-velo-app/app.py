@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import re
 from pybaseball import chadwick_register
 from data import get_pitcher_data
 
@@ -18,16 +19,35 @@ st.markdown(
 )
 
 # =============================
-# Load & cache pitcher list (heuristic, safe)
+# Load & cache registry (names + MLBAM IDs)
 # =============================
 @st.cache_data(show_spinner=False)
-def load_pitchers():
+def load_registry():
     df = chadwick_register().copy()
 
     df["name"] = (
         df.get("name_first", "").fillna("") + " " +
         df.get("name_last", "").fillna("")
     ).str.strip()
+
+    # Normalize MLBAM id column (varies by version)
+    for col in ["key_mlbam", "mlbam_id", "key_mlb"]:
+        if col in df.columns:
+            df["mlbam_id"] = df[col]
+            break
+    else:
+        df["mlbam_id"] = np.nan
+
+    return df[["name", "mlbam_id"]]
+
+REGISTRY = load_registry()
+
+# =============================
+# Build pitcher list (Option B heuristic)
+# =============================
+@st.cache_data(show_spinner=False)
+def load_pitchers():
+    df = REGISTRY.copy()
 
     pitcher_positions = {"P", "SP", "RP"}
     if "mlb_pos" in df.columns:
@@ -42,8 +62,32 @@ def load_pitchers():
 PITCHER_LIST = load_pitchers()
 
 # =============================
-# Styling helper
+# Helpers
 # =============================
+MIN_PITCHES = 1
+
+def slugify(name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+
+def savant_url(name: str):
+    row = REGISTRY[REGISTRY["name"] == name]
+    if row.empty:
+        return None
+
+    mlbam_id = row.iloc[0]["mlbam_id"]
+    if pd.isna(mlbam_id):
+        return None
+
+    return f"https://baseballsavant.mlb.com/savant-player/{slugify(name)}-{int(mlbam_id)}"
+
+def render_pitcher_header(name: str, context: str):
+    url = savant_url(name)
+    if url:
+        st.markdown(f"## [{name}]({url})")
+    else:
+        st.markdown(f"## {name}")
+    st.markdown(f"*{context}*")
+
 def dark_zebra(df):
     return df.style.apply(
         lambda _: [
@@ -52,11 +96,6 @@ def dark_zebra(df):
         ],
         axis=0
     )
-
-# =============================
-# Helpers
-# =============================
-MIN_PITCHES = 1
 
 def parse_name(full):
     if not full or " " not in full:
@@ -150,7 +189,6 @@ with c2:
 with c3:
     season = st.selectbox("Season", [2025, 2026])
 
-# Run button on its own row
 c_run = st.columns([6, 1])
 with c_run[1]:
     run = st.button("Run Matchup")
@@ -184,9 +222,10 @@ for tab, key in zip(
     ["All", "Early (1–2)", "Middle (3–4)", "Late (5+)"]
 ):
     with tab:
-        # Away
-        st.markdown(f"## {away_pitcher}")
-        st.markdown(f"*Away Pitcher • {key} • {season}*")
+        render_pitcher_header(
+            away_pitcher,
+            f"Away Pitcher • {key} • {season}"
+        )
 
         with st.expander("Show Pitch Mix (Season Overall)"):
             st.dataframe(dark_zebra(build_pitch_mix(away_groups[key])), use_container_width=True, hide_index=True)
@@ -204,9 +243,10 @@ for tab, key in zip(
 
         st.divider()
 
-        # Home
-        st.markdown(f"## {home_pitcher}")
-        st.markdown(f"*Home Pitcher • {key} • {season}*")
+        render_pitcher_header(
+            home_pitcher,
+            f"Home Pitcher • {key} • {season}"
+        )
 
         with st.expander("Show Pitch Mix (Season Overall)"):
             st.dataframe(dark_zebra(build_pitch_mix(home_groups[key])), use_container_width=True, hide_index=True)
