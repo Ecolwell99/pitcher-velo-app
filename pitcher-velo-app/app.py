@@ -3,7 +3,6 @@ import pandas as pd
 import numpy as np
 from pybaseball import chadwick_register
 from data import get_pitcher_data
-import re
 
 # =============================
 # Page setup
@@ -13,34 +12,16 @@ st.title("⚾ Pitcher Matchup — Velocity Bias by Count")
 st.caption("Public Statcast data")
 
 # =============================
-# Load & cache player registry
+# Load & cache pitcher list (Option B heuristic)
 # =============================
 @st.cache_data(show_spinner=False)
-def load_registry():
+def load_pitchers_heuristic():
     df = chadwick_register().copy()
 
     df["name"] = (
-        df["name_first"].fillna("") + " " + df["name_last"].fillna("")
+        df.get("name_first", "").fillna("") + " " +
+        df.get("name_last", "").fillna("")
     ).str.strip()
-
-    # MLBAM id column names vary slightly across versions
-    for col in ["key_mlbam", "mlbam_id", "key_mlb"]:
-        if col in df.columns:
-            df["mlbam_id"] = df[col]
-            break
-    else:
-        df["mlbam_id"] = None
-
-    return df[["name", "mlbam_id"]]
-
-REGISTRY = load_registry()
-
-# =============================
-# Build pitcher dropdown (Option B heuristic)
-# =============================
-@st.cache_data(show_spinner=False)
-def build_pitcher_list():
-    df = REGISTRY.copy()
 
     pitcher_positions = {"P", "SP", "RP"}
 
@@ -51,30 +32,13 @@ def build_pitcher_list():
     elif "pos" in df.columns:
         df = df[df["pos"].isna() | df["pos"].isin(pitcher_positions)]
 
-    names = df["name"].dropna().unique().tolist()
-    return sorted(names)
+    return sorted(df["name"].dropna().unique().tolist())
 
-PITCHER_LIST = build_pitcher_list()
+PITCHER_LIST = load_pitchers_heuristic()
 
 # =============================
-# Helpers
+# Styling helper
 # =============================
-MIN_PITCHES = 1
-
-def slugify(name: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
-
-def savant_url(name: str):
-    row = REGISTRY[REGISTRY["name"] == name]
-    if row.empty:
-        return None
-
-    mlbam_id = row.iloc[0]["mlbam_id"]
-    if pd.isna(mlbam_id):
-        return None
-
-    return f"https://baseballsavant.mlb.com/savant-player/{slugify(name)}-{int(mlbam_id)}"
-
 def dark_zebra(df):
     return df.style.apply(
         lambda _: [
@@ -84,10 +48,26 @@ def dark_zebra(df):
         axis=0
     )
 
+# =============================
+# Helpers
+# =============================
+MIN_PITCHES = 1
+
 def parse_name(full):
     if not full or " " not in full:
         return None, None
     return full.split(" ", 1)
+
+def filter_by_inning(df, inning_group):
+    if inning_group == "All":
+        return df
+    if inning_group == "Early (1–2)":
+        return df[df["inning"].isin([1, 2])]
+    if inning_group == "Middle (3–4)":
+        return df[df["inning"].isin([3, 4])]
+    if inning_group == "Late (5+)":
+        return df[df["inning"] >= 5]
+    return df
 
 def build_pitch_mix(df):
     if df is None or df.empty:
@@ -157,30 +137,28 @@ def build_count_tables(df):
     return output["LHB"], output["RHB"]
 
 # =============================
-# Matchup header
+# Controls
 # =============================
 st.markdown("### Matchup")
 
-c1, c2, c3, c4 = st.columns([3, 3, 2, 1])
+c1, c2, c3, c4, c5 = st.columns([3, 3, 2, 2, 1])
 
 with c1:
-    away_pitcher = st.selectbox(
-        "Away Pitcher",
-        options=PITCHER_LIST,
-        index=PITCHER_LIST.index("Zac Gallen") if "Zac Gallen" in PITCHER_LIST else 0,
-    )
+    away_pitcher = st.selectbox("Away Pitcher", PITCHER_LIST)
 
 with c2:
-    home_pitcher = st.selectbox(
-        "Home Pitcher",
-        options=PITCHER_LIST,
-        index=PITCHER_LIST.index("Gerrit Cole") if "Gerrit Cole" in PITCHER_LIST else 0,
-    )
+    home_pitcher = st.selectbox("Home Pitcher", PITCHER_LIST)
 
 with c3:
-    season = st.selectbox("Season", options=[2025, 2026], index=0)
+    season = st.selectbox("Season", [2025, 2026])
 
 with c4:
+    inning_group = st.selectbox(
+        "Inning",
+        ["All", "Early (1–2)", "Middle (3–4)", "Late (5+)"],
+    )
+
+with c5:
     run = st.button("Run Matchup")
 
 st.divider()
@@ -189,7 +167,7 @@ st.divider()
 # Run matchup
 # =============================
 if not run:
-    st.info("Select pitchers and season, then click **Run Matchup**.")
+    st.info("Select pitchers, season, and inning group, then click **Run Matchup**.")
     st.stop()
 
 away_first, away_last = parse_name(away_pitcher)
@@ -198,69 +176,60 @@ home_first, home_last = parse_name(home_pitcher)
 away_df, home_df = None, None
 errors = []
 
-with st.spinner(f"Pulling Statcast data for {season}..."):
+with st.spinner("Pulling Statcast data..."):
     try:
         away_df = get_pitcher_data(away_first, away_last, season)
+        away_df = filter_by_inning(away_df, inning_group)
     except Exception:
-        errors.append(f"No Statcast data found for Away Pitcher: {away_pitcher} ({season})")
+        errors.append(f"No data for Away Pitcher ({inning_group})")
 
     try:
         home_df = get_pitcher_data(home_first, home_last, season)
+        home_df = filter_by_inning(home_df, inning_group)
     except Exception:
-        errors.append(f"No Statcast data found for Home Pitcher: {home_pitcher} ({season})")
+        errors.append(f"No data for Home Pitcher ({inning_group})")
 
 for e in errors:
     st.warning(e)
 
 # =============================
-# Display — Away Pitcher
+# Display
 # =============================
 if away_df is not None:
-    url = savant_url(away_pitcher)
-    st.subheader("✈️ Away Pitcher")
-    if url:
-        st.markdown(f"**[{away_pitcher}]({url}) — {season}**")
-    else:
-        st.markdown(f"**{away_pitcher} — {season}**")
+    st.subheader(f"✈️ Away Pitcher — {inning_group}")
+    st.markdown(f"**{away_pitcher} — {season}**")
 
     with st.expander("Show Pitch Mix (Season Overall)"):
         st.dataframe(dark_zebra(build_pitch_mix(away_df)), use_container_width=True, hide_index=True)
 
-    away_lhb, away_rhb = build_count_tables(away_df)
-    c5, c6 = st.columns(2)
-
-    with c5:
-        st.markdown("**[LHB]**")
-        st.dataframe(dark_zebra(away_lhb), use_container_width=True, hide_index=True)
+    lhb, rhb = build_count_tables(away_df)
+    c6, c7 = st.columns(2)
 
     with c6:
+        st.markdown("**[LHB]**")
+        st.dataframe(dark_zebra(lhb), use_container_width=True, hide_index=True)
+
+    with c7:
         st.markdown("**[RHB]**")
-        st.dataframe(dark_zebra(away_rhb), use_container_width=True, hide_index=True)
+        st.dataframe(dark_zebra(rhb), use_container_width=True, hide_index=True)
 
 st.divider()
 
-# =============================
-# Display — Home Pitcher
-# =============================
 if home_df is not None:
-    url = savant_url(home_pitcher)
-    st.subheader("🏠 Home Pitcher")
-    if url:
-        st.markdown(f"**[{home_pitcher}]({url}) — {season}**")
-    else:
-        st.markdown(f"**{home_pitcher} — {season}**")
+    st.subheader(f"🏠 Home Pitcher — {inning_group}")
+    st.markdown(f"**{home_pitcher} — {season}**")
 
     with st.expander("Show Pitch Mix (Season Overall)"):
         st.dataframe(dark_zebra(build_pitch_mix(home_df)), use_container_width=True, hide_index=True)
 
-    home_lhb, home_rhb = build_count_tables(home_df)
-    c7, c8 = st.columns(2)
-
-    with c7:
-        st.markdown("**[LHB]**")
-        st.dataframe(dark_zebra(home_lhb), use_container_width=True, hide_index=True)
+    lhb, rhb = build_count_tables(home_df)
+    c8, c9 = st.columns(2)
 
     with c8:
+        st.markdown("**[LHB]**")
+        st.dataframe(dark_zebra(lhb), use_container_width=True, hide_index=True)
+
+    with c9:
         st.markdown("**[RHB]**")
-        st.dataframe(dark_zebra(home_rhb), use_container_width=True, hide_index=True)
+        st.dataframe(dark_zebra(rhb), use_container_width=True, hide_index=True)
 
