@@ -19,7 +19,7 @@ st.markdown(
 )
 
 # =============================
-# Load & cache registry (names + MLBAM IDs)
+# Load & cache registry
 # =============================
 @st.cache_data(show_spinner=False)
 def load_registry():
@@ -68,7 +68,7 @@ def render_pitcher_header(name: str, context: str):
             <div style="display:flex; align-items:center; gap:10px;">
                 <h2 style="margin:0;">{name}</h2>
                 <a href="{url}" target="_blank"
-                   style="text-decoration:none; font-size:18px; opacity:0.8;">
+                   style="text-decoration:none; font-size:16px; opacity:0.75;">
                     🔗
                 </a>
             </div>
@@ -80,7 +80,7 @@ def render_pitcher_header(name: str, context: str):
 
     st.markdown(f"*{context}*")
 
-def dark_zebra(df):
+def zebra(df):
     return df.style.apply(
         lambda _: [
             "background-color: rgba(255,255,255,0.045)" if i % 2 else ""
@@ -88,9 +88,6 @@ def dark_zebra(df):
         ],
         axis=0
     )
-
-def parse_name(full):
-    return full.split(" ", 1)
 
 def split_by_inning(df):
     return {
@@ -105,42 +102,35 @@ def build_pitch_mix(df):
         return pd.DataFrame()
 
     df = df[df["pitch_name"] != "PO"]
-
     mix = (
         df.groupby("pitch_name")
-          .agg(pitches=("release_speed", "count"),
-               avg_mph=("release_speed", "mean"))
-          .reset_index()
+        .agg(pitches=("release_speed", "count"),
+             avg_mph=("release_speed", "mean"))
+        .reset_index()
     )
 
     total = mix["pitches"].sum()
-    mix["usage_pct"] = mix["pitches"] / total * 100
-    mix = mix.sort_values("usage_pct", ascending=False)
-
-    mix["Usage %"] = mix["usage_pct"].map(lambda x: f"{x:.1f}")
-    mix["Avg MPH"] = mix["avg_mph"].map(lambda x: f"{x:.1f}")
-
+    mix["Usage %"] = (mix["pitches"] / total * 100).round(1).astype(str)
+    mix["Avg MPH"] = mix["avg_mph"].round(1).astype(str)
+    mix = mix.sort_values("Usage %", ascending=False)
     return mix.rename(columns={"pitch_name": "Pitch Type"})[
         ["Pitch Type", "Usage %", "Avg MPH"]
     ]
 
-def build_count_tables(df):
+def build_bias_tables(df):
     if df.empty:
         return pd.DataFrame(), pd.DataFrame()
 
     df = df[df["stand"].isin(["R", "L"])]
-    out = {}
 
-    for stand, label in [("L", "LHB"), ("R", "RHB")]:
+    def make_side(side):
         rows = []
-        for count, grp in df[df["stand"] == stand].groupby("count"):
-            speeds = grp["release_speed"].dropna().to_numpy()
+        for count, g in df[df["stand"] == side].groupby("count"):
+            speeds = g["release_speed"].dropna().to_numpy()
             if len(speeds) < MIN_PITCHES:
                 continue
-
             cutoff = round(np.mean(speeds), 1)
             over = (speeds >= cutoff).mean()
-
             bias = (
                 f"{round(over*100,1)}% Over {cutoff:.1f} MPH"
                 if over >= 0.5
@@ -148,68 +138,56 @@ def build_count_tables(df):
             )
             rows.append({"Count": count, "Bias": bias})
 
-        if rows:
-            df_out = pd.DataFrame(rows)
-            df_out["sort"] = df_out["Count"].apply(
-                lambda x: int(x.split("-")[0])*10 + int(x.split("-")[1])
-            )
-            out[label] = df_out.sort_values("sort").drop(columns="sort").reset_index(drop=True)
-        else:
-            out[label] = pd.DataFrame()
+        df_out = pd.DataFrame(rows)
+        if df_out.empty:
+            return df_out
 
-    return out["LHB"], out["RHB"]
+        df_out["sort"] = df_out["Count"].apply(
+            lambda x: int(x.split("-")[0])*10 + int(x.split("-")[1])
+        )
+        return df_out.sort_values("sort").drop(columns="sort").reset_index(drop=True)
+
+    return make_side("L"), make_side("R")
 
 # =============================
-# Matchup
+# Matchup controls
 # =============================
 st.markdown("### Matchup")
 
 c1, c2, c3 = st.columns([3, 3, 2])
+away = st.selectbox("Away Pitcher", PITCHER_LIST)
+home = st.selectbox("Home Pitcher", PITCHER_LIST)
+season = st.selectbox("Season", [2025, 2026])
 
-with c1:
-    away_pitcher = st.selectbox("Away Pitcher", PITCHER_LIST)
-
-with c2:
-    home_pitcher = st.selectbox("Home Pitcher", PITCHER_LIST)
-
-with c3:
-    season = st.selectbox("Season", [2025, 2026])
-
-c_spacer, c_button = st.columns([8, 1])
-with c_button:
-    run = st.button("Run Matchup", use_container_width=True)
+c_spacer, c_btn = st.columns([8, 1])
+run = c_btn.button("Run Matchup", use_container_width=True)
 
 st.divider()
 
 if not run:
     st.stop()
 
-away_first, away_last = parse_name(away_pitcher)
-home_first, home_last = parse_name(home_pitcher)
+away_df = get_pitcher_data(*away.split(" ", 1), season)
+home_df = get_pitcher_data(*home.split(" ", 1), season)
 
-away_raw = get_pitcher_data(away_first, away_last, season)
-home_raw = get_pitcher_data(home_first, home_last, season)
-
-away_groups = split_by_inning(away_raw)
-home_groups = split_by_inning(home_raw)
+away_groups = split_by_inning(away_df)
+home_groups = split_by_inning(home_df)
 
 tabs = st.tabs(["All", "Early (1–2)", "Middle (3–4)", "Late (5+)"])
 
 for tab, key in zip(tabs, away_groups.keys()):
     with tab:
-        render_pitcher_header(away_pitcher, f"Away Pitcher • {key} • {season}")
-
-        lhb, rhb = build_count_tables(away_groups[key])
+        render_pitcher_header(away, f"Away Pitcher • {key} • {season}")
+        lhb, rhb = build_bias_tables(away_groups[key])
         c4, c5 = st.columns(2)
-        c4.dataframe(dark_zebra(lhb), use_container_width=True, hide_index=True)
-        c5.dataframe(dark_zebra(rhb), use_container_width=True, hide_index=True)
+        c4.table(zebra(lhb))
+        c5.table(zebra(rhb))
 
         st.divider()
 
-        render_pitcher_header(home_pitcher, f"Home Pitcher • {key} • {season}")
-
-        lhb, rhb = build_count_tables(home_groups[key])
+        render_pitcher_header(home, f"Home Pitcher • {key} • {season}")
+        lhb, rhb = build_bias_tables(home_groups[key])
         c6, c7 = st.columns(2)
-        c6.dataframe(dark_zebra(lhb), use_container_width=True, hide_index=True)
-        c7.dataframe(dark_zebra(rhb), use_container_width=True, hide_index=True)
+        c6.table(zebra(lhb))
+        c7.table(zebra(rhb))
 
