@@ -12,11 +12,12 @@ st.title("⚾ Pitcher Matchup — Velocity Bias by Count")
 st.caption("Public Statcast data")
 
 # =============================
-# Load & cache pitcher list (heuristic)
+# Load & cache pitcher list (heuristic, safe)
 # =============================
 @st.cache_data(show_spinner=False)
 def load_pitchers():
     df = chadwick_register().copy()
+
     df["name"] = (
         df.get("name_first", "").fillna("") + " " +
         df.get("name_last", "").fillna("")
@@ -35,7 +36,7 @@ def load_pitchers():
 PITCHER_LIST = load_pitchers()
 
 # =============================
-# Styling
+# Styling helper (dark zebra rows)
 # =============================
 def dark_zebra(df):
     return df.style.apply(
@@ -59,9 +60,9 @@ def parse_name(full):
 def split_by_inning(df):
     return {
         "All": df,
-        "Early": df[df["inning"].isin([1, 2])],
-        "Middle": df[df["inning"].isin([3, 4])],
-        "Late": df[df["inning"] >= 5],
+        "Early (1–2)": df[df["inning"].isin([1, 2])],
+        "Middle (3–4)": df[df["inning"].isin([3, 4])],
+        "Late (5+)": df[df["inning"] >= 5],
     }
 
 def build_pitch_mix(df):
@@ -166,11 +167,14 @@ away_groups = split_by_inning(away_raw)
 home_groups = split_by_inning(home_raw)
 
 # =============================
-# Tabs
+# Tabs (DEFINED)
 # =============================
-tabs = st.tabs(["All", "Early", "Middle", "Late"])
+tabs = st.tabs(["All", "Early (1–2)", "Middle (3–4)", "Late (5+)"])
 
-for tab, key in zip(tabs, ["All", "Early", "Middle", "Late"]):
+for tab, key in zip(
+    tabs,
+    ["All", "Early (1–2)", "Middle (3–4)", "Late (5+)"]
+):
     with tab:
         st.subheader(f"✈️ Away Pitcher — {key}")
         st.markdown(f"**{away_pitcher} — {season}**")
@@ -215,4 +219,3 @@ for tab, key in zip(tabs, ["All", "Early", "Middle", "Late"]):
         with c8:
             st.markdown("**[RHB]**")
             st.dataframe(dark_zebra(rhb), use_container_width=True, hide_index=True)
-
