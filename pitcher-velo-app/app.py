@@ -80,15 +80,6 @@ def render_pitcher_header(name: str, context: str):
 
     st.markdown(f"*{context}*")
 
-def zebra(df):
-    return df.style.apply(
-        lambda _: [
-            "background-color: rgba(255,255,255,0.045)" if i % 2 else ""
-            for i in range(len(df))
-        ],
-        axis=0
-    )
-
 def split_by_inning(df):
     return {
         "All": df,
@@ -98,8 +89,8 @@ def split_by_inning(df):
     }
 
 def build_bias_tables(df):
-    if df.empty:
-        return pd.DataFrame(), pd.DataFrame()
+    if df is None or df.empty:
+        return pd.DataFrame(columns=["Count", "Bias"]), pd.DataFrame(columns=["Count", "Bias"])
 
     df = df[df["stand"].isin(["R", "L"])]
 
@@ -110,33 +101,59 @@ def build_bias_tables(df):
             if len(speeds) < MIN_PITCHES:
                 continue
 
-            cutoff = round(np.mean(speeds), 1)
-            over = (speeds >= cutoff).mean()
+            cutoff = round(float(np.mean(speeds)), 1)
+            over = float((speeds >= cutoff).mean())
 
-            bias = (
-                f"{round(over*100,1)}% Over {cutoff:.1f} MPH"
-                if over >= 0.5
-                else f"{round((1-over)*100,1)}% Under {cutoff:.1f} MPH"
-            )
+            if over >= 0.5:
+                bias = f"{round(over*100,1)}% Over {cutoff:.1f} MPH"
+            else:
+                bias = f"{round((1-over)*100,1)}% Under {cutoff:.1f} MPH"
 
             rows.append({"Count": count, "Bias": bias})
 
-        df_out = pd.DataFrame(rows)
-        if df_out.empty:
-            return df_out
+        out = pd.DataFrame(rows)
+        if out.empty:
+            return pd.DataFrame(columns=["Count", "Bias"])
 
-        df_out["sort"] = df_out["Count"].apply(
-            lambda x: int(x.split("-")[0])*10 + int(x.split("-")[1])
-        )
-
-        return (
-            df_out
-            .sort_values("sort")
-            .drop(columns="sort")
-            .reset_index(drop=True)  # 🔑 REMOVE INDEX
-        )
+        out["sort"] = out["Count"].apply(lambda x: int(x.split("-")[0]) * 10 + int(x.split("-")[1]))
+        out = out.sort_values("sort").drop(columns="sort").reset_index(drop=True)
+        return out
 
     return make_side("L"), make_side("R")
+
+# ---- HTML table renderer (no index + zebra + dark) ----
+TABLE_CSS = """
+<style>
+.dk-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.dk-table th, .dk-table td {
+  padding: 10px 12px;
+  border: 1px solid rgba(255,255,255,0.08);
+}
+.dk-table th {
+  text-align: left;
+  background: rgba(255,255,255,0.06);
+  color: rgba(255,255,255,0.85);
+}
+.dk-table tr:nth-child(even) td {
+  background: rgba(255,255,255,0.04);
+}
+.dk-table tr:nth-child(odd) td {
+  background: rgba(0,0,0,0);
+}
+</style>
+"""
+
+def render_bias_table(df: pd.DataFrame):
+    # Ensure no index column ever shows
+    df = df.copy().reset_index(drop=True)
+
+    # Convert to HTML without index
+    html = df.to_html(index=False, classes="dk-table", escape=False)
+    st.markdown(TABLE_CSS + html, unsafe_allow_html=True)
 
 # =============================
 # Matchup controls
@@ -144,12 +161,16 @@ def build_bias_tables(df):
 st.markdown("### Matchup")
 
 c1, c2, c3 = st.columns([3, 3, 2])
-away = st.selectbox("Away Pitcher", PITCHER_LIST)
-home = st.selectbox("Home Pitcher", PITCHER_LIST)
-season = st.selectbox("Season", [2025, 2026])
+with c1:
+    away = st.selectbox("Away Pitcher", PITCHER_LIST)
+with c2:
+    home = st.selectbox("Home Pitcher", PITCHER_LIST)
+with c3:
+    season = st.selectbox("Season", [2025, 2026])
 
 c_spacer, c_btn = st.columns([8, 1])
-run = c_btn.button("Run Matchup", use_container_width=True)
+with c_btn:
+    run = st.button("Run Matchup", use_container_width=True)
 
 st.divider()
 
@@ -164,17 +185,31 @@ home_groups = split_by_inning(home_df)
 
 tabs = st.tabs(["All", "Early (1–2)", "Middle (3–4)", "Late (5+)"])
 
-for tab, key in zip(tabs, away_groups.keys()):
+for tab, key in zip(tabs, ["All", "Early (1–2)", "Middle (3–4)", "Late (5+)"]):
     with tab:
+        # Away
         render_pitcher_header(away, f"Away Pitcher • {key} • {season}")
-        lhb, rhb = build_bias_tables(away_groups[key])
-        st.columns(2)[0].table(zebra(lhb))
-        st.columns(2)[1].table(zebra(rhb))
+        away_lhb, away_rhb = build_bias_tables(away_groups[key])
+
+        col_l, col_r = st.columns(2)
+        with col_l:
+            st.markdown("**vs LHB**")
+            render_bias_table(away_lhb)
+        with col_r:
+            st.markdown("**vs RHB**")
+            render_bias_table(away_rhb)
 
         st.divider()
 
+        # Home
         render_pitcher_header(home, f"Home Pitcher • {key} • {season}")
-        lhb, rhb = build_bias_tables(home_groups[key])
-        st.columns(2)[0].table(zebra(lhb))
-        st.columns(2)[1].table(zebra(rhb))
+        home_lhb, home_rhb = build_bias_tables(home_groups[key])
+
+        col_l2, col_r2 = st.columns(2)
+        with col_l2:
+            st.markdown("**vs LHB**")
+            render_bias_table(home_lhb)
+        with col_r2:
+            st.markdown("**vs RHB**")
+            render_bias_table(home_rhb)
 
