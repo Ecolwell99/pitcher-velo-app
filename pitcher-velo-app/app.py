@@ -60,6 +60,25 @@ def savant_url(name: str):
         return None
     return f"https://baseballsavant.mlb.com/savant-player/{slugify(name)}-{int(row.iloc[0]['mlbam_id'])}"
 
+def get_pitcher_throws(df: pd.DataFrame) -> str | None:
+    """
+    Safely extract pitcher throwing hand from Statcast data.
+    Returns 'RHP', 'LHP', or None.
+    """
+    if df is None or df.empty or "p_throws" not in df.columns:
+        return None
+
+    val = df["p_throws"].dropna()
+    if val.empty:
+        return None
+
+    hand = val.iloc[0]
+    if hand == "R":
+        return "RHP"
+    if hand == "L":
+        return "LHP"
+    return None
+
 def render_pitcher_header(name: str, context: str):
     url = savant_url(name)
     if url:
@@ -148,10 +167,7 @@ TABLE_CSS = """
 """
 
 def render_bias_table(df: pd.DataFrame):
-    # Ensure no index column ever shows
     df = df.copy().reset_index(drop=True)
-
-    # Convert to HTML without index
     html = df.to_html(index=False, classes="dk-table", escape=False)
     st.markdown(TABLE_CSS + html, unsafe_allow_html=True)
 
@@ -180,6 +196,9 @@ if not run:
 away_df = get_pitcher_data(*away.split(" ", 1), season)
 home_df = get_pitcher_data(*home.split(" ", 1), season)
 
+away_throw = get_pitcher_throws(away_df)
+home_throw = get_pitcher_throws(home_df)
+
 away_groups = split_by_inning(away_df)
 home_groups = split_by_inning(home_df)
 
@@ -188,7 +207,9 @@ tabs = st.tabs(["All", "Early (1–2)", "Middle (3–4)", "Late (5+)"])
 for tab, key in zip(tabs, ["All", "Early (1–2)", "Middle (3–4)", "Late (5+)"]):
     with tab:
         # Away
-        render_pitcher_header(away, f"Away Pitcher • {key} • {season}")
+        away_context = f"{away_throw} | Away Pitcher • {key} • {season}" if away_throw else f"Away Pitcher • {key} • {season}"
+        render_pitcher_header(away, away_context)
+
         away_lhb, away_rhb = build_bias_tables(away_groups[key])
 
         col_l, col_r = st.columns(2)
@@ -202,7 +223,9 @@ for tab, key in zip(tabs, ["All", "Early (1–2)", "Middle (3–4)", "Late (5+)"
         st.divider()
 
         # Home
-        render_pitcher_header(home, f"Home Pitcher • {key} • {season}")
+        home_context = f"{home_throw} | Home Pitcher • {key} • {season}" if home_throw else f"Home Pitcher • {key} • {season}"
+        render_pitcher_header(home, home_context)
+
         home_lhb, home_rhb = build_bias_tables(home_groups[key])
 
         col_l2, col_r2 = st.columns(2)
