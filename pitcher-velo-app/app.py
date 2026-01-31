@@ -46,6 +46,9 @@ def load_pitchers():
 
 PITCHER_LIST = load_pitchers()
 
+# Add blank placeholder option
+PITCHER_OPTIONS = ["— Select Pitcher —"] + PITCHER_LIST
+
 # =============================
 # Helpers
 # =============================
@@ -61,10 +64,6 @@ def savant_url(name: str):
     return f"https://baseballsavant.mlb.com/savant-player/{slugify(name)}-{int(row.iloc[0]['mlbam_id'])}"
 
 def get_pitcher_throws(df: pd.DataFrame) -> str | None:
-    """
-    Safely extract pitcher throwing hand from Statcast data.
-    Returns 'RHP', 'LHP', or None.
-    """
     if df is None or df.empty or "p_throws" not in df.columns:
         return None
 
@@ -72,10 +71,9 @@ def get_pitcher_throws(df: pd.DataFrame) -> str | None:
     if val.empty:
         return None
 
-    hand = val.iloc[0]
-    if hand == "R":
+    if val.iloc[0] == "R":
         return "RHP"
-    if hand == "L":
+    if val.iloc[0] == "L":
         return "LHP"
     return None
 
@@ -140,7 +138,7 @@ def build_bias_tables(df):
 
     return make_side("L"), make_side("R")
 
-# ---- HTML table renderer (no index + zebra + dark) ----
+# ---- HTML table renderer ----
 TABLE_CSS = """
 <style>
 .dk-table {
@@ -178,9 +176,9 @@ st.markdown("### Matchup")
 
 c1, c2, c3 = st.columns([3, 3, 2])
 with c1:
-    away = st.selectbox("Away Pitcher", PITCHER_LIST)
+    away = st.selectbox("Away Pitcher", PITCHER_OPTIONS)
 with c2:
-    home = st.selectbox("Home Pitcher", PITCHER_LIST)
+    home = st.selectbox("Home Pitcher", PITCHER_OPTIONS)
 with c3:
     season = st.selectbox("Season", [2025, 2026])
 
@@ -190,7 +188,8 @@ with c_btn:
 
 st.divider()
 
-if not run:
+# Require explicit pitcher selection
+if not run or away.startswith("—") or home.startswith("—"):
     st.stop()
 
 away_df = get_pitcher_data(*away.split(" ", 1), season)
@@ -206,8 +205,11 @@ tabs = st.tabs(["All", "Early (1–2)", "Middle (3–4)", "Late (5+)"])
 
 for tab, key in zip(tabs, ["All", "Early (1–2)", "Middle (3–4)", "Late (5+)"]):
     with tab:
-        # Away
-        away_context = f"{away_throw} | Away Pitcher • {key} • {season}" if away_throw else f"Away Pitcher • {key} • {season}"
+        away_context = (
+            f"{away_throw} | Away Pitcher • {key} • {season}"
+            if away_throw
+            else f"Away Pitcher • {key} • {season}"
+        )
         render_pitcher_header(away, away_context)
 
         away_lhb, away_rhb = build_bias_tables(away_groups[key])
@@ -222,8 +224,11 @@ for tab, key in zip(tabs, ["All", "Early (1–2)", "Middle (3–4)", "Late (5+)"
 
         st.divider()
 
-        # Home
-        home_context = f"{home_throw} | Home Pitcher • {key} • {season}" if home_throw else f"Home Pitcher • {key} • {season}"
+        home_context = (
+            f"{home_throw} | Home Pitcher • {key} • {season}"
+            if home_throw
+            else f"Home Pitcher • {key} • {season}"
+        )
         render_pitcher_header(home, home_context)
 
         home_lhb, home_rhb = build_bias_tables(home_groups[key])
