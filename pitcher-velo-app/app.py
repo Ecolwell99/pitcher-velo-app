@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import os
 import re
 from pybaseball import chadwick_register
 from data import get_pitcher_data
@@ -19,13 +20,29 @@ st.markdown(
 )
 
 # =============================
-# Load curated pitcher list
+# HARD DEBUG: show files Streamlit sees
 # =============================
-@st.cache_data(show_spinner=False)
+st.markdown("### 🔍 Debug: Files visible to Streamlit")
+st.write(os.listdir("."))
+
+# =============================
+# Load pitchers.csv (NO CACHE)
+# =============================
 def load_pitchers_from_csv():
-    df = pd.read_csv("pitchers.csv")
-    df["name"] = df["name"].astype(str).str.strip()
-    return sorted(df["name"].unique().tolist())
+    try:
+        df = pd.read_csv("./pitchers.csv")
+        st.markdown("### 🔍 Debug: pitchers.csv loaded")
+        st.write("Columns:", df.columns.tolist())
+        st.write("First 10 rows:", df.head(10))
+
+        df["name"] = df["name"].astype(str).str.strip()
+        pitchers = sorted(df["name"].unique().tolist())
+        st.write("Total pitchers loaded:", len(pitchers))
+        return pitchers
+
+    except Exception as e:
+        st.error(f"CSV LOAD ERROR: {e}")
+        return []
 
 PITCHER_LIST = load_pitchers_from_csv()
 
@@ -93,7 +110,6 @@ def split_by_inning(df):
         "Late (5+)": df[df["inning"] >= 5],
     }
 
-# ---------- Bias table logic ----------
 def build_bias_tables(df):
     if df.empty:
         empty = pd.DataFrame(columns=["Count", "Bias"])
@@ -128,37 +144,14 @@ def build_bias_tables(df):
 
     return make_side("L"), make_side("R")
 
-# ---------- HTML table renderer (no index, zebra, no scroll) ----------
-TABLE_CSS = """
-<style>
-.dk-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 14px;
-}
-.dk-table th, .dk-table td {
-  padding: 10px 12px;
-  border: 1px solid rgba(255,255,255,0.08);
-}
-.dk-table th {
-  text-align: left;
-  background: rgba(255,255,255,0.06);
-}
-.dk-table tr:nth-child(even) td {
-  background: rgba(255,255,255,0.04);
-}
-</style>
-"""
-
-def render_bias_table(df):
-    df = df.copy().reset_index(drop=True)
-    html = df.to_html(index=False, classes="dk-table", escape=False)
-    st.markdown(TABLE_CSS + html, unsafe_allow_html=True)
-
 # =============================
 # Matchup controls
 # =============================
 st.markdown("### Matchup")
+
+if not PITCHER_LIST:
+    st.error("❌ No pitchers loaded. Check debug output above.")
+    st.stop()
 
 c1, c2, c3 = st.columns([3, 3, 2])
 
@@ -181,7 +174,7 @@ if not run:
     st.stop()
 
 # =============================
-# Load data
+# Load Statcast data
 # =============================
 away_df = get_pitcher_data(*away_pitcher.split(" ", 1), season)
 home_df = get_pitcher_data(*home_pitcher.split(" ", 1), season)
@@ -189,36 +182,21 @@ home_df = get_pitcher_data(*home_pitcher.split(" ", 1), season)
 away_groups = split_by_inning(away_df)
 home_groups = split_by_inning(home_df)
 
-# =============================
-# Tabs
-# =============================
 tabs = st.tabs(["All", "Early (1–2)", "Middle (3–4)", "Late (5+)"])
 
 for tab, key in zip(tabs, away_groups.keys()):
     with tab:
-        # Away
         render_pitcher_header(away_pitcher, f"Away Pitcher • {key} • {season}")
         lhb, rhb = build_bias_tables(away_groups[key])
-
         col_l, col_r = st.columns(2)
-        with col_l:
-            st.markdown("**vs LHB**")
-            render_bias_table(lhb)
-        with col_r:
-            st.markdown("**vs RHB**")
-            render_bias_table(rhb)
+        col_l.table(lhb)
+        col_r.table(rhb)
 
         st.divider()
 
-        # Home
         render_pitcher_header(home_pitcher, f"Home Pitcher • {key} • {season}")
         lhb, rhb = build_bias_tables(home_groups[key])
-
         col_l2, col_r2 = st.columns(2)
-        with col_l2:
-            st.markdown("**vs LHB**")
-            render_bias_table(lhb)
-        with col_r2:
-            st.markdown("**vs RHB**")
-            render_bias_table(rhb)
+        col_l2.table(lhb)
+        col_r2.table(rhb)
 
