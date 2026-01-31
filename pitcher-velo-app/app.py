@@ -19,7 +19,33 @@ st.markdown(
 )
 
 # =============================
-# Load & cache registry
+# Load pitcher list (STATIC CSV)
+# =============================
+PITCHER_CSV_PATH = "assets/pitchers.csv"
+
+try:
+    PITCHERS_DF = pd.read_csv(PITCHER_CSV_PATH)
+except Exception as e:
+    st.error(f"Failed to load {PITCHER_CSV_PATH}: {e}")
+    st.stop()
+
+required_cols = {"name", "first", "last"}
+if not required_cols.issubset(PITCHERS_DF.columns):
+    st.error("pitchers.csv must contain columns: name, first, last")
+    st.stop()
+
+PITCHERS_DF = PITCHERS_DF.dropna(subset=["name", "first", "last"])
+PITCHERS_DF["name"] = PITCHERS_DF["name"].astype(str).str.strip()
+
+PITCHER_OPTIONS = ["— Select Pitcher —"] + sorted(PITCHERS_DF["name"].tolist())
+
+PITCHER_MAP = {
+    row["name"]: {"first": row["first"], "last": row["last"]}
+    for _, row in PITCHERS_DF.iterrows()
+}
+
+# =============================
+# Load & cache registry (Savant links only)
 # =============================
 @st.cache_data(show_spinner=False)
 def load_registry():
@@ -40,15 +66,6 @@ def load_registry():
 
 REGISTRY = load_registry()
 
-@st.cache_data(show_spinner=False)
-def load_pitchers():
-    return sorted(REGISTRY["name"].dropna().unique().tolist())
-
-PITCHER_LIST = load_pitchers()
-
-# Add blank placeholder option
-PITCHER_OPTIONS = ["— Select Pitcher —"] + PITCHER_LIST
-
 # =============================
 # Helpers
 # =============================
@@ -66,16 +83,10 @@ def savant_url(name: str):
 def get_pitcher_throws(df: pd.DataFrame) -> str | None:
     if df is None or df.empty or "p_throws" not in df.columns:
         return None
-
-    val = df["p_throws"].dropna()
-    if val.empty:
+    v = df["p_throws"].dropna()
+    if v.empty:
         return None
-
-    if val.iloc[0] == "R":
-        return "RHP"
-    if val.iloc[0] == "L":
-        return "LHP"
-    return None
+    return "RHP" if v.iloc[0] == "R" else "LHP"
 
 def render_pitcher_header(name: str, context: str):
     url = savant_url(name)
@@ -85,9 +96,7 @@ def render_pitcher_header(name: str, context: str):
             <div style="display:flex; align-items:center; gap:10px;">
                 <h2 style="margin:0;">{name}</h2>
                 <a href="{url}" target="_blank"
-                   style="text-decoration:none; font-size:16px; opacity:0.75;">
-                    🔗
-                </a>
+                   style="text-decoration:none; font-size:16px; opacity:0.75;">🔗</a>
             </div>
             """,
             unsafe_allow_html=True,
@@ -121,53 +130,22 @@ def build_bias_tables(df):
             cutoff = round(float(np.mean(speeds)), 1)
             over = float((speeds >= cutoff).mean())
 
-            if over >= 0.5:
-                bias = f"{round(over*100,1)}% Over {cutoff:.1f} MPH"
-            else:
-                bias = f"{round((1-over)*100,1)}% Under {cutoff:.1f} MPH"
+            bias = (
+                f"{round(over*100,1)}% Over {cutoff:.1f} MPH"
+                if over >= 0.5
+                else f"{round((1-over)*100,1)}% Under {cutoff:.1f} MPH"
+            )
 
             rows.append({"Count": count, "Bias": bias})
 
         out = pd.DataFrame(rows)
         if out.empty:
-            return pd.DataFrame(columns=["Count", "Bias"])
+            return out
 
         out["sort"] = out["Count"].apply(lambda x: int(x.split("-")[0]) * 10 + int(x.split("-")[1]))
-        out = out.sort_values("sort").drop(columns="sort").reset_index(drop=True)
-        return out
+        return out.sort_values("sort").drop(columns="sort").reset_index(drop=True)
 
     return make_side("L"), make_side("R")
-
-# ---- HTML table renderer ----
-TABLE_CSS = """
-<style>
-.dk-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 14px;
-}
-.dk-table th, .dk-table td {
-  padding: 10px 12px;
-  border: 1px solid rgba(255,255,255,0.08);
-}
-.dk-table th {
-  text-align: left;
-  background: rgba(255,255,255,0.06);
-  color: rgba(255,255,255,0.85);
-}
-.dk-table tr:nth-child(even) td {
-  background: rgba(255,255,255,0.04);
-}
-.dk-table tr:nth-child(odd) td {
-  background: rgba(0,0,0,0);
-}
-</style>
-"""
-
-def render_bias_table(df: pd.DataFrame):
-    df = df.copy().reset_index(drop=True)
-    html = df.to_html(index=False, classes="dk-table", escape=False)
-    st.markdown(TABLE_CSS + html, unsafe_allow_html=True)
 
 # =============================
 # Matchup controls
@@ -188,12 +166,14 @@ with c_btn:
 
 st.divider()
 
-# Require explicit pitcher selection
 if not run or away.startswith("—") or home.startswith("—"):
     st.stop()
 
-away_df = get_pitcher_data(*away.split(" ", 1), season)
-home_df = get_pitcher_data(*home.split(" ", 1), season)
+away_meta = PITCHER_MAP[away]
+home_meta = PITCHER_MAP[home]
+
+away_df = get_pitcher_data(away_meta["first"], away_meta["last"], season)
+home_df = get_pitcher_data(home_meta["first"], home_meta["last"], season)
 
 away_throw = get_pitcher_throws(away_df)
 home_throw = get_pitcher_throws(home_df)
@@ -205,40 +185,33 @@ tabs = st.tabs(["All", "Early (1–2)", "Middle (3–4)", "Late (5+)"])
 
 for tab, key in zip(tabs, ["All", "Early (1–2)", "Middle (3–4)", "Late (5+)"]):
     with tab:
-        away_context = (
-            f"{away_throw} | Away Pitcher • {key} • {season}"
-            if away_throw
-            else f"Away Pitcher • {key} • {season}"
+        render_pitcher_header(
+            away,
+            f"{away_throw} | Away Pitcher • {key} • {season}",
         )
-        render_pitcher_header(away, away_context)
 
-        away_lhb, away_rhb = build_bias_tables(away_groups[key])
-
+        lhb, rhb = build_bias_tables(away_groups[key])
         col_l, col_r = st.columns(2)
         with col_l:
             st.markdown("**vs LHB**")
-            render_bias_table(away_lhb)
+            st.markdown(lhb.to_html(index=False), unsafe_allow_html=True)
         with col_r:
             st.markdown("**vs RHB**")
-            render_bias_table(away_rhb)
+            st.markdown(rhb.to_html(index=False), unsafe_allow_html=True)
 
         st.divider()
 
-        home_context = (
-            f"{home_throw} | Home Pitcher • {key} • {season}"
-            if home_throw
-            else f"Home Pitcher • {key} • {season}"
+        render_pitcher_header(
+            home,
+            f"{home_throw} | Home Pitcher • {key} • {season}",
         )
-        render_pitcher_header(home, home_context)
 
-        home_lhb, home_rhb = build_bias_tables(home_groups[key])
-
+        lhb, rhb = build_bias_tables(home_groups[key])
         col_l2, col_r2 = st.columns(2)
         with col_l2:
             st.markdown("**vs LHB**")
-            render_bias_table(home_lhb)
+            st.markdown(lhb.to_html(index=False), unsafe_allow_html=True)
         with col_r2:
             st.markdown("**vs RHB**")
-            render_bias_table(home_rhb)
-
+            st.markdown(rhb.to_html(index=False), unsafe_allow_html=True)
 
