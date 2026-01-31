@@ -2,9 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import re
-from datetime import date
-
-from pybaseball import chadwick_register, statcast
+from pybaseball import chadwick_register
 from data import get_pitcher_data
 
 # =============================
@@ -21,7 +19,7 @@ st.markdown(
 )
 
 # =============================
-# Chadwick registry (Savant link fallback only)
+# Load & cache registry
 # =============================
 @st.cache_data(show_spinner=False)
 def load_registry():
@@ -42,6 +40,15 @@ def load_registry():
 
 REGISTRY = load_registry()
 
+@st.cache_data(show_spinner=False)
+def load_pitchers():
+    return sorted(REGISTRY["name"].dropna().unique().tolist())
+
+PITCHER_LIST = load_pitchers()
+
+# Add blank placeholder option
+PITCHER_OPTIONS = ["— Select Pitcher —"] + PITCHER_LIST
+
 # =============================
 # Helpers
 # =============================
@@ -50,41 +57,37 @@ MIN_PITCHES = 1
 def slugify(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
 
-def savant_url(name: str, mlbam_id: int | None = None):
-    pid = mlbam_id
-    if pid is None:
-        row = REGISTRY[REGISTRY["name"] == name]
-        if not row.empty and not pd.isna(row.iloc[0]["mlbam_id"]):
-            pid = int(row.iloc[0]["mlbam_id"])
-
-    if pid is None:
+def savant_url(name: str):
+    row = REGISTRY[REGISTRY["name"] == name]
+    if row.empty or pd.isna(row.iloc[0]["mlbam_id"]):
         return None
-
-    return f"https://baseballsavant.mlb.com/savant-player/{slugify(name)}-{int(pid)}"
-
-def split_first_last(name: str):
-    parts = name.split()
-    if len(parts) == 1:
-        return parts[0], ""
-    return parts[0], " ".join(parts[1:])
+    return f"https://baseballsavant.mlb.com/savant-player/{slugify(name)}-{int(row.iloc[0]['mlbam_id'])}"
 
 def get_pitcher_throws(df: pd.DataFrame) -> str | None:
     if df is None or df.empty or "p_throws" not in df.columns:
         return None
-    v = df["p_throws"].dropna()
-    if v.empty:
-        return None
-    return "RHP" if v.iloc[0] == "R" else "LHP"
 
-def render_pitcher_header(name: str, context: str, mlbam_id: int):
-    url = savant_url(name, mlbam_id)
+    val = df["p_throws"].dropna()
+    if val.empty:
+        return None
+
+    if val.iloc[0] == "R":
+        return "RHP"
+    if val.iloc[0] == "L":
+        return "LHP"
+    return None
+
+def render_pitcher_header(name: str, context: str):
+    url = savant_url(name)
     if url:
         st.markdown(
             f"""
             <div style="display:flex; align-items:center; gap:10px;">
                 <h2 style="margin:0;">{name}</h2>
                 <a href="{url}" target="_blank"
-                   style="text-decoration:none; font-size:16px; opacity:0.75;">🔗</a>
+                   style="text-decoration:none; font-size:16px; opacity:0.75;">
+                    🔗
+                </a>
             </div>
             """,
             unsafe_allow_html=True,
@@ -118,48 +121,53 @@ def build_bias_tables(df):
             cutoff = round(float(np.mean(speeds)), 1)
             over = float((speeds >= cutoff).mean())
 
-            bias = (
-                f"{round(over*100,1)}% Over {cutoff:.1f} MPH"
-                if over >= 0.5
-                else f"{round((1-over)*100,1)}% Under {cutoff:.1f} MPH"
-            )
+            if over >= 0.5:
+                bias = f"{round(over*100,1)}% Over {cutoff:.1f} MPH"
+            else:
+                bias = f"{round((1-over)*100,1)}% Under {cutoff:.1f} MPH"
 
             rows.append({"Count": count, "Bias": bias})
 
         out = pd.DataFrame(rows)
         if out.empty:
-            return out
+            return pd.DataFrame(columns=["Count", "Bias"])
 
         out["sort"] = out["Count"].apply(lambda x: int(x.split("-")[0]) * 10 + int(x.split("-")[1]))
-        return out.sort_values("sort").drop(columns="sort").reset_index(drop=True)
+        out = out.sort_values("sort").drop(columns="sort").reset_index(drop=True)
+        return out
 
     return make_side("L"), make_side("R")
 
-# =============================
-# Pitcher pool from REAL Statcast pitch logs (ROBUST OPTION A)
-# =============================
-@st.cache_data(show_spinner=False)
-def load_pitcher_pool(season: int):
-    start = f"{season}-03-01"
-    end = date.today().strftime("%Y-%m-%d")
+# ---- HTML table renderer ----
+TABLE_CSS = """
+<style>
+.dk-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.dk-table th, .dk-table td {
+  padding: 10px 12px;
+  border: 1px solid rgba(255,255,255,0.08);
+}
+.dk-table th {
+  text-align: left;
+  background: rgba(255,255,255,0.06);
+  color: rgba(255,255,255,0.85);
+}
+.dk-table tr:nth-child(even) td {
+  background: rgba(255,255,255,0.04);
+}
+.dk-table tr:nth-child(odd) td {
+  background: rgba(0,0,0,0);
+}
+</style>
+"""
 
-    df = statcast(start, end)
-    df = df.dropna(subset=["pitcher", "player_name"])
-
-    out = (
-        df[["pitcher", "player_name"]]
-        .drop_duplicates()
-        .rename(columns={"pitcher": "mlbam_id", "player_name": "name"})
-    )
-
-    out["name"] = out["name"].astype(str).str.strip()
-    out = out.sort_values("name").reset_index(drop=True)
-
-    fl = out["name"].apply(split_first_last)
-    out["first"] = fl.apply(lambda x: x[0])
-    out["last"] = fl.apply(lambda x: x[1])
-
-    return out
+def render_bias_table(df: pd.DataFrame):
+    df = df.copy().reset_index(drop=True)
+    html = df.to_html(index=False, classes="dk-table", escape=False)
+    st.markdown(TABLE_CSS + html, unsafe_allow_html=True)
 
 # =============================
 # Matchup controls
@@ -167,27 +175,12 @@ def load_pitcher_pool(season: int):
 st.markdown("### Matchup")
 
 c1, c2, c3 = st.columns([3, 3, 2])
-
-with c3:
-    season = st.selectbox("Season", [2025, 2026])
-
-pitcher_pool = load_pitcher_pool(season)
-
-PITCHER_OPTIONS = ["— Select Pitcher —"] + pitcher_pool["name"].tolist()
-
-PITCHER_MAP = {
-    row["name"]: {
-        "first": row["first"],
-        "last": row["last"],
-        "mlbam_id": int(row["mlbam_id"]),
-    }
-    for _, row in pitcher_pool.iterrows()
-}
-
 with c1:
     away = st.selectbox("Away Pitcher", PITCHER_OPTIONS)
 with c2:
     home = st.selectbox("Home Pitcher", PITCHER_OPTIONS)
+with c3:
+    season = st.selectbox("Season", [2025, 2026])
 
 c_spacer, c_btn = st.columns([8, 1])
 with c_btn:
@@ -195,14 +188,12 @@ with c_btn:
 
 st.divider()
 
+# Require explicit pitcher selection
 if not run or away.startswith("—") or home.startswith("—"):
     st.stop()
 
-away_meta = PITCHER_MAP[away]
-home_meta = PITCHER_MAP[home]
-
-away_df = get_pitcher_data(away_meta["first"], away_meta["last"], season)
-home_df = get_pitcher_data(home_meta["first"], home_meta["last"], season)
+away_df = get_pitcher_data(*away.split(" ", 1), season)
+home_df = get_pitcher_data(*home.split(" ", 1), season)
 
 away_throw = get_pitcher_throws(away_df)
 home_throw = get_pitcher_throws(home_df)
@@ -214,35 +205,40 @@ tabs = st.tabs(["All", "Early (1–2)", "Middle (3–4)", "Late (5+)"])
 
 for tab, key in zip(tabs, ["All", "Early (1–2)", "Middle (3–4)", "Late (5+)"]):
     with tab:
-        render_pitcher_header(
-            away,
-            f"{away_throw} | Away Pitcher • {key} • {season}",
-            away_meta["mlbam_id"],
+        away_context = (
+            f"{away_throw} | Away Pitcher • {key} • {season}"
+            if away_throw
+            else f"Away Pitcher • {key} • {season}"
         )
+        render_pitcher_header(away, away_context)
 
-        lhb, rhb = build_bias_tables(away_groups[key])
+        away_lhb, away_rhb = build_bias_tables(away_groups[key])
+
         col_l, col_r = st.columns(2)
         with col_l:
             st.markdown("**vs LHB**")
-            st.markdown(lhb.to_html(index=False), unsafe_allow_html=True)
+            render_bias_table(away_lhb)
         with col_r:
             st.markdown("**vs RHB**")
-            st.markdown(rhb.to_html(index=False), unsafe_allow_html=True)
+            render_bias_table(away_rhb)
 
         st.divider()
 
-        render_pitcher_header(
-            home,
-            f"{home_throw} | Home Pitcher • {key} • {season}",
-            home_meta["mlbam_id"],
+        home_context = (
+            f"{home_throw} | Home Pitcher • {key} • {season}"
+            if home_throw
+            else f"Home Pitcher • {key} • {season}"
         )
+        render_pitcher_header(home, home_context)
 
-        lhb, rhb = build_bias_tables(home_groups[key])
+        home_lhb, home_rhb = build_bias_tables(home_groups[key])
+
         col_l2, col_r2 = st.columns(2)
         with col_l2:
             st.markdown("**vs LHB**")
-            st.markdown(lhb.to_html(index=False), unsafe_allow_html=True)
+            render_bias_table(home_lhb)
         with col_r2:
             st.markdown("**vs RHB**")
-            st.markdown(rhb.to_html(index=False), unsafe_allow_html=True)
+            render_bias_table(home_rhb)
+
 
