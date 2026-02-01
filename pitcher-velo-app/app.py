@@ -123,9 +123,11 @@ def build_bias_tables(df):
     return make("L"), make("R")
 
 def build_pitch_mix_overall(df):
-    if df.empty: return pd.DataFrame(columns=["Pitch Type","Usage %","Avg MPH"])
+    if df.empty:
+        return pd.DataFrame(columns=["Pitch Type","Usage %","Avg MPH"])
     g = df[df["pitch_type"] != "PO"].dropna(subset=["pitch_type"])
-    if g.empty: return pd.DataFrame(columns=["Pitch Type","Usage %","Avg MPH"])
+    if g.empty:
+        return pd.DataFrame(columns=["Pitch Type","Usage %","Avg MPH"])
     mix = g.groupby("pitch_type").agg(
         P=("pitch_type","size"),
         V=("release_speed","mean")
@@ -156,16 +158,16 @@ except ValueError as e:
     st.error(str(e)); st.stop()
 
 # =============================
-# Pitch Mix (Season Overall) — FIXED
+# Pitch Mix (Season Overall) — RESTORED
 # =============================
 render_pitcher_header(away, f"{get_pitcher_throws(away_df)} | Away Pitcher • Season Overall • {season}")
-with st.expander("Show Pitch Mix (Season Overall)", key="pitch_mix_away"):
+with st.expander("Show Pitch Mix (Season Overall)"):
     render_table(build_pitch_mix_overall(away_df), "dk-mix")
 
 st.divider()
 
 render_pitcher_header(home, f"{get_pitcher_throws(home_df)} | Home Pitcher • Season Overall • {season}")
-with st.expander("Show Pitch Mix (Season Overall)", key="pitch_mix_home"):
+with st.expander("Show Pitch Mix (Season Overall)"):
     render_table(build_pitch_mix_overall(home_df), "dk-mix")
 
 st.divider()
