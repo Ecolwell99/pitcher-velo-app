@@ -170,18 +170,20 @@ def build_bias_tables(df):
         for c, g in df[df["stand"] == side].groupby("count"):
             v = g["release_speed"].dropna()
             n = len(v)
-            if n == 0:
+
+            # 🔴 Suppress extremely small samples
+            if n < 10:
                 continue
 
             m = v.mean()
             p = (v >= m).mean()
-
             bias_text = f"{round(max(p,1-p)*100,1)}% {'Over' if p>=.5 else 'Under'} {m:.1f}"
 
-            # Low sample indicator
-            if n < 25:
+            # 🟡 Low-sample indicator for 10–19
+            if n < 20:
                 bias_text += (
-                    f""" <span class="dk-info" title="Low sample size (fewer than 25 pitches). Interpret directionally.">ⓘ</span>"""
+                    ' <span class="dk-info" '
+                    'title="Low sample size (10–19 pitches). Interpret directionally.">ⓘ</span>'
                 )
 
             rows.append({
