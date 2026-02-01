@@ -62,17 +62,64 @@ def normalize_name(name: str) -> str:
     name = re.sub(r"\s+", " ", name.lower()).strip()
     return name
 
+def parse_full_name(input_name: str):
+    parts = re.sub(r"\s+", " ", (input_name or "").strip()).split(" ")
+    if len(parts) < 2:
+        return None, None
+    first = " ".join(parts[:-1])
+    last = parts[-1]
+    return first, last
+
+# =============================
+# First-name aliasing (SAFE, controlled)
+# =============================
+# Bidirectional alias sets. Keep this small + obvious.
+_ALIAS_GROUPS = [
+    {"matt", "matthew"},
+    {"mike", "michael"},
+    {"nick", "nicholas"},
+    {"chris", "christopher"},
+    {"alex", "alexander"},
+    {"ben", "benjamin"},
+    {"dan", "daniel"},
+    {"dave", "david"},
+    {"jim", "james"},
+    {"joe", "joseph"},
+    {"jon", "john", "jonathan"},
+    {"tom", "thomas"},
+    {"will", "william"},
+    {"rob", "robert"},
+]
+_ALIAS_MAP = {}
+for grp in _ALIAS_GROUPS:
+    for a in grp:
+        _ALIAS_MAP[a] = grp
+
+def first_name_variants(first: str) -> set[str]:
+    f = normalize_name(first)
+    if not f:
+        return set()
+    variants = {f}
+    if f in _ALIAS_MAP:
+        variants |= set(_ALIAS_MAP[f])
+    return variants
+
 # =============================
 # Load Chadwick registry (cached)
 # =============================
 @st.cache_data(show_spinner=False)
 def load_registry():
     df = chadwick_register().copy()
+
     df["display_name"] = (
         df.get("name_first", "").fillna("") + " " +
         df.get("name_last", "").fillna("")
     ).str.strip()
+
     df["norm_name"] = df["display_name"].apply(normalize_name)
+    df["norm_first"] = df.get("name_first", "").fillna("").apply(normalize_name)
+    df["norm_last"] = df.get("name_last", "").fillna("").apply(normalize_name)
+
     return df
 
 REGISTRY = load_registry()
@@ -96,14 +143,54 @@ def resolve_pitcher(input_name: str, season: int, role: str):
     if not input_name or len(input_name.strip().split()) < 2:
         raise ValueError("Please enter full first and last name.")
 
-    norm = normalize_name(input_name)
-    matches = REGISTRY[REGISTRY["norm_name"] == norm]
+    norm_full = normalize_name(input_name)
+    matches = REGISTRY[REGISTRY["norm_name"] == norm_full]
+
+    # Fallback 1: last-name match + SAFE first-name alias match
+    if matches.empty:
+        first, last = parse_full_name(input_name)
+        if first and last:
+            nf = normalize_name(first)
+            nl = normalize_name(last)
+
+            last_matches = REGISTRY[REGISTRY["norm_last"] == nl].copy()
+
+            if not last_matches.empty:
+                input_first_variants = first_name_variants(first)
+
+                # Candidate matches if candidate first is in our variants OR input first in candidate variants
+                def alias_ok(row):
+                    cand_first = row["norm_first"]
+                    if not cand_first:
+                        return False
+                    return (cand_first in input_first_variants) or (nf in first_name_variants(cand_first))
+
+                alias_matches = last_matches[last_matches.apply(alias_ok, axis=1)]
+
+                if not alias_matches.empty:
+                    matches = alias_matches
+
+                # Fallback 2: last name exists but alias didn't resolve → offer refine-by-radio
+                elif len(last_matches) > 0:
+                    st.warning(
+                        f'Could not find an exact match for "{input_name}". '
+                        f'Pitchers found with last name "{last}": please select the correct one.'
+                    )
+                    # show up to 25 to avoid overwhelming UI
+                    opts = last_matches["display_name"].dropna().unique().tolist()[:25]
+                    choice = st.radio(
+                        f"Select {role} Pitcher",
+                        opts,
+                        key=f"refine_lastname_{role}",
+                    )
+                    matches = REGISTRY[REGISTRY["display_name"] == choice]
 
     if matches.empty:
         raise ValueError(f"No pitcher found for '{input_name}'.")
 
     enriched = []
 
+    # Enrich candidates by verifying Statcast data exists (season)
     for _, r in matches.iterrows():
         try:
             df = get_pitcher_data(r["name_first"], r["name_last"], season)
@@ -131,7 +218,7 @@ def resolve_pitcher(input_name: str, season: int, role: str):
         e = enriched[0]
         return e["first"], e["last"], e["display"]
 
-    st.warning(f'Multiple pitchers named "{input_name}" found in {season}. Please select:')
+    st.warning(f'Multiple pitchers match "{input_name}" in {season}. Please select:')
 
     options = {
         f'{e["display"]} — {e["throws"]} — {e["team"]}': e
@@ -271,10 +358,10 @@ for t, key in zip(tabs, ["All","Early (1–2)","Middle (3–4)","Late (5+)"]):
         cL, cR = st.columns(2)
         with cL:
             st.markdown("**vs LHB**")
-            render_table(lhb,"dk-bias")
+            render_table(lhb, "dk-bias")
         with cR:
             st.markdown("**vs RHB**")
-            render_table(rhb,"dk-bias")
+            render_table(rhb, "dk-bias")
 
         st.divider()
 
@@ -290,10 +377,10 @@ for t, key in zip(tabs, ["All","Early (1–2)","Middle (3–4)","Late (5+)"]):
         cL2, cR2 = st.columns(2)
         with cL2:
             st.markdown("**vs LHB**")
-            render_table(lhb,"dk-bias")
+            render_table(lhb, "dk-bias")
         with cR2:
             st.markdown("**vs RHB**")
-            render_table(rhb,"dk-bias")
+            render_table(rhb, "dk-bias")
 
         st.divider()
 
