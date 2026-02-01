@@ -174,8 +174,20 @@ if not run or away.startswith("—") or home.startswith("—"):
 away_meta = PITCHER_MAP[away]
 home_meta = PITCHER_MAP[home]
 
-away_df = get_pitcher_data(away_meta["first"], away_meta["last"], season)
-home_df = get_pitcher_data(home_meta["first"], home_meta["last"], season)
+# =============================
+# SAFE Statcast fetch with clear messaging
+# =============================
+try:
+    away_df = get_pitcher_data(away_meta["first"], away_meta["last"], season)
+except ValueError:
+    st.error(f"No Statcast data available for **{away} ({season})**.")
+    st.stop()
+
+try:
+    home_df = get_pitcher_data(home_meta["first"], home_meta["last"], season)
+except ValueError:
+    st.error(f"No Statcast data available for **{home} ({season})**.")
+    st.stop()
 
 away_throw = get_pitcher_throws(away_df)
 home_throw = get_pitcher_throws(home_df)
