@@ -21,7 +21,7 @@ st.markdown(
 # =============================
 # Load pitcher list (STATIC CSV)
 # =============================
-PITCHER_CSV_PATH = "assets/pitchers.csv"
+PITCHER_CSV_PATH = "pitcher-velo-app/assets/pitchers.csv"
 
 try:
     PITCHERS_DF = pd.read_csv(PITCHER_CSV_PATH)
