@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import re
+from pathlib import Path
 from pybaseball import chadwick_register
 from data import get_pitcher_data
 
@@ -19,14 +20,15 @@ st.markdown(
 )
 
 # =============================
-# Load pitcher list (STATIC CSV)
+# Load pitcher list (STATIC CSV — ROBUST PATH)
 # =============================
-PITCHER_CSV_PATH = "pitcher-velo-app/assets/pitchers.csv"
+BASE_DIR = Path(__file__).resolve().parent
+PITCHER_CSV_PATH = BASE_DIR / "assets" / "pitchers.csv"
 
 try:
     PITCHERS_DF = pd.read_csv(PITCHER_CSV_PATH)
 except Exception as e:
-    st.error(f"Failed to load {PITCHER_CSV_PATH}: {e}")
+    st.error(f"Failed to load pitchers.csv at {PITCHER_CSV_PATH}: {e}")
     st.stop()
 
 required_cols = {"name", "first", "last"}
