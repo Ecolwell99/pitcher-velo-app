@@ -73,14 +73,14 @@ def load_registry():
         df.get("name_last", "").fillna("")
     ).str.strip()
     df["norm_name"] = df["display_name"].apply(normalize_name)
-    return df
+    return df[["name_first", "name_last", "display_name", "norm_name"]]
 
 REGISTRY = load_registry()
 
 # =============================
-# Pitcher resolution with disambiguation
+# Resolve pitcher with Statcast-backed disambiguation
 # =============================
-def resolve_pitcher(input_name: str, role: str):
+def resolve_pitcher(input_name: str, season: int, role: str):
     if not input_name or len(input_name.strip().split()) < 2:
         raise ValueError("Please enter full first and last name.")
 
@@ -90,26 +90,54 @@ def resolve_pitcher(input_name: str, role: str):
     if matches.empty:
         raise ValueError(f"No pitcher found for '{input_name}'.")
 
-    if len(matches) == 1:
-        row = matches.iloc[0]
-        return row["name_first"], row["name_last"], row["display_name"]
+    enriched = []
 
-    # Multiple matches → disambiguation
-    st.warning(f'Multiple pitchers named "{input_name}" found. Please select the correct pitcher:')
-
-    options = []
+    # Enrich each candidate with Statcast data (bounded: usually 1–2)
     for _, r in matches.iterrows():
-        label = r["display_name"]
-        options.append(label)
+        try:
+            df = get_pitcher_data(r["name_first"], r["name_last"], season)
+        except ValueError:
+            continue
+
+        if df.empty:
+            continue
+
+        throws = "LHP" if df["p_throws"].iloc[0] == "L" else "RHP"
+
+        # infer team from Statcast data
+        team = df["home_team"].mode().iloc[0] if "home_team" in df else "UNK"
+
+        enriched.append({
+            "first": r["name_first"],
+            "last": r["name_last"],
+            "display": r["display_name"],
+            "throws": throws,
+            "team": team,
+        })
+
+    if not enriched:
+        raise ValueError(f"No Statcast data found for '{input_name}' in {season}.")
+
+    if len(enriched) == 1:
+        e = enriched[0]
+        return e["first"], e["last"], e["display"]
+
+    # Multiple valid candidates → radio disambiguation
+    st.warning(f'Multiple pitchers named "{input_name}" found in {season}. Please select:')
+
+    options = {
+        f'{e["display"]} — {e["throws"]} — {e["team"]}': e
+        for e in enriched
+    }
 
     choice = st.radio(
-        label=f"Select {role} Pitcher",
-        options=options,
+        f"Select {role} Pitcher",
+        list(options.keys()),
         key=f"disambiguate_{role}",
     )
 
-    row = matches[matches["display_name"] == choice].iloc[0]
-    return row["name_first"], row["name_last"], row["display_name"]
+    e = options[choice]
+    return e["first"], e["last"], e["display"]
 
 # =============================
 # Analytics helpers
@@ -178,11 +206,11 @@ if not run:
     st.stop()
 
 # =============================
-# Resolve pitchers (with radio disambiguation)
+# Resolve pitchers
 # =============================
 try:
-    away_first, away_last, away_name = resolve_pitcher(away_input, "Away")
-    home_first, home_last, home_name = resolve_pitcher(home_input, "Home")
+    away_first, away_last, away_name = resolve_pitcher(away_input, season, "Away")
+    home_first, home_last, home_name = resolve_pitcher(home_input, season, "Home")
 except ValueError as e:
     st.error(str(e))
     st.stop()
