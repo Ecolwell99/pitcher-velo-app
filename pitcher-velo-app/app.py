@@ -92,7 +92,16 @@ def get_pitcher_throws(df):
 def render_pitcher_header(name, context):
     url = savant_url(name)
     st.markdown(
-        f"<h2 style='margin-bottom:4px'>{name} <a href='{url}' target='_blank' style='font-size:16px;opacity:.7'>🔗</a></h2><i>{context}</i>",
+        f"""
+        <h2 style="margin-bottom:4px;">
+          {name}
+          <a href="{url}" target="_blank"
+             style="font-size:16px; opacity:.7; text-decoration:none; border-bottom:none;">
+            🔗
+          </a>
+        </h2>
+        <i>{context}</i>
+        """,
         unsafe_allow_html=True,
     )
 
@@ -157,7 +166,8 @@ try:
     away_df = get_pitcher_data(PITCHER_MAP[away]["first"], PITCHER_MAP[away]["last"], season)
     home_df = get_pitcher_data(PITCHER_MAP[home]["first"], PITCHER_MAP[home]["last"], season)
 except ValueError as e:
-    st.error(str(e)); st.stop()
+    st.error(str(e))
+    st.stop()
 
 away_mix = build_pitch_mix_overall(away_df)
 home_mix = build_pitch_mix_overall(home_df)
@@ -167,7 +177,14 @@ tabs = st.tabs(["All","Early (1–2)","Middle (3–4)","Late (5+)"])
 for t, key in zip(tabs, ["All","Early (1–2)","Middle (3–4)","Late (5+)"]):
     with t:
         # Away
-        render_pitcher_header(away, f"{get_pitcher_throws(away_df)} | Away Pitcher • {key} • {season}")
+        render_pitcher_header(
+            away,
+            f"{get_pitcher_throws(away_df)} | Away Pitcher • {key} • {season}"
+        )
+
+        # spacing before expander (this is the requested fix)
+        st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+
         with st.expander("Show Pitch Mix (Season Overall)"):
             render_table(away_mix, "dk-mix")
 
@@ -175,15 +192,21 @@ for t, key in zip(tabs, ["All","Early (1–2)","Middle (3–4)","Late (5+)"]):
         cL, cR = st.columns(2)
         with cL:
             st.markdown("**vs LHB**")
-            render_table(lhb, "dk-bias")
+            render_table(lhb,"dk-bias")
         with cR:
             st.markdown("**vs RHB**")
-            render_table(rhb, "dk-bias")
+            render_table(rhb,"dk-bias")
 
         st.divider()
 
         # Home
-        render_pitcher_header(home, f"{get_pitcher_throws(home_df)} | Home Pitcher • {key} • {season}")
+        render_pitcher_header(
+            home,
+            f"{get_pitcher_throws(home_df)} | Home Pitcher • {key} • {season}"
+        )
+
+        st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+
         with st.expander("Show Pitch Mix (Season Overall)"):
             render_table(home_mix, "dk-mix")
 
@@ -191,10 +214,10 @@ for t, key in zip(tabs, ["All","Early (1–2)","Middle (3–4)","Late (5+)"]):
         cL2, cR2 = st.columns(2)
         with cL2:
             st.markdown("**vs LHB**")
-            render_table(lhb, "dk-bias")
+            render_table(lhb,"dk-bias")
         with cR2:
             st.markdown("**vs RHB**")
-            render_table(rhb, "dk-bias")
+            render_table(rhb,"dk-bias")
 
         st.divider()
 
