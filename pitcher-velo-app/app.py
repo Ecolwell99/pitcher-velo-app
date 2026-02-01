@@ -4,7 +4,7 @@ import numpy as np
 import re
 import unicodedata
 from pathlib import Path
-from pybaseball import chadwick_register, statcast
+from pybaseball import chadwick_register
 from data import get_pitcher_data
 
 # =============================
@@ -53,12 +53,9 @@ TABLE_CSS = """
 st.markdown(TABLE_CSS, unsafe_allow_html=True)
 
 # =============================
-# Helpers: normalization + registry
+# Name normalization
 # =============================
 def normalize_name(name: str) -> str:
-    """
-    Lowercase, strip accents, normalize whitespace.
-    """
     if not isinstance(name, str):
         return ""
     name = unicodedata.normalize("NFKD", name)
@@ -66,70 +63,45 @@ def normalize_name(name: str) -> str:
     name = re.sub(r"\s+", " ", name.lower()).strip()
     return name
 
+# =============================
+# Load Chadwick registry (cached)
+# =============================
 @st.cache_data(show_spinner=False)
-def load_pitcher_index(season: int) -> pd.DataFrame:
-    """
-    Build a season-scoped pitcher index from Statcast.
-    Columns:
-      - first
-      - last
-      - display_name (accented)
-      - norm_name
-    """
-    # Pull only pitcher appearances for the season
-    start = f"{season}-03-01"
-    end = f"{season}-11-30"
+def load_registry():
+    df = chadwick_register().copy()
 
-    df = statcast(start_dt=start, end_dt=end)
-    if df is None or df.empty:
-        return pd.DataFrame(columns=["first", "last", "display_name", "norm_name"])
+    df["display_name"] = (
+        df.get("name_first", "").fillna("") + " " +
+        df.get("name_last", "").fillna("")
+    ).str.strip()
 
-    # Statcast pitcher names come as "Last, First"
-    names = (
-        df[["player_name"]]
-        .dropna()
-        .drop_duplicates()
-        .copy()
-    )
+    df["norm_name"] = df["display_name"].apply(normalize_name)
 
-    # Split "Last, First"
-    names[["last", "first"]] = names["player_name"].str.split(", ", expand=True)
-    names["display_name"] = names["first"] + " " + names["last"]
-    names["norm_name"] = names["display_name"].apply(normalize_name)
+    return df[["display_name", "name_first", "name_last", "norm_name"]]
 
-    return names[["first", "last", "display_name", "norm_name"]]
+REGISTRY = load_registry()
 
-def resolve_pitcher(input_name: str, season: int):
-    """
-    Resolve a free-text pitcher name to a canonical (accented) Statcast name.
-    Rules:
-      - Full first + last name required
-      - Accent-insensitive exact match after normalization
-      - Season-scoped
-      - Error on zero or multiple matches
-    """
+def resolve_pitcher(input_name: str):
     if not input_name or len(input_name.strip().split()) < 2:
         raise ValueError("Please enter full first and last name.")
 
     norm = normalize_name(input_name)
-    index = load_pitcher_index(season)
-
-    matches = index[index["norm_name"] == norm]
+    matches = REGISTRY[REGISTRY["norm_name"] == norm]
 
     if matches.empty:
-        raise ValueError(f"No pitcher found for '{input_name}' in {season}.")
+        raise ValueError(f"No pitcher found for '{input_name}'.")
 
     if len(matches) > 1:
         raise ValueError(
-            f"Multiple pitchers named '{input_name}' found in {season}. "
+            f"Multiple players named '{input_name}' found. "
             "Please refine your input."
         )
 
     row = matches.iloc[0]
-    return row["first"], row["last"], row["display_name"]
+    return row["name_first"], row["name_last"], row["display_name"]
 
 # =============================
-# Pitcher analytics helpers
+# Analytics helpers
 # =============================
 def get_pitcher_throws(df):
     return None if df.empty else ("RHP" if df["p_throws"].iloc[0] == "R" else "LHP")
@@ -180,7 +152,7 @@ def render_table(df, cls):
     st.markdown(df.to_html(index=False, classes=f"dk-table {cls}", escape=False), unsafe_allow_html=True)
 
 # =============================
-# Controls (FREE TEXT INPUT)
+# Controls (free text)
 # =============================
 c1, c2, c3 = st.columns([3,3,2])
 with c1:
@@ -198,14 +170,14 @@ if not run:
 # Resolve pitchers
 # =============================
 try:
-    away_first, away_last, away_name = resolve_pitcher(away_input, season)
-    home_first, home_last, home_name = resolve_pitcher(home_input, season)
+    away_first, away_last, away_name = resolve_pitcher(away_input)
+    home_first, home_last, home_name = resolve_pitcher(home_input)
 except ValueError as e:
     st.error(str(e))
     st.stop()
 
 # =============================
-# Pull Statcast data
+# Pull Statcast data (fast)
 # =============================
 try:
     away_df = get_pitcher_data(away_first, away_last, season)
