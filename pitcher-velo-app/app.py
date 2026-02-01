@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import re
-from pathlib import Path
+import unicodedata
 from pybaseball import chadwick_register
 from data import get_pitcher_data
 
@@ -52,58 +52,98 @@ TABLE_CSS = """
 st.markdown(TABLE_CSS, unsafe_allow_html=True)
 
 # =============================
-# Load pitcher list (CSV)
+# Name normalization
 # =============================
-BASE_DIR = Path(__file__).resolve().parent
-PITCHER_CSV_PATH = BASE_DIR / "assets" / "pitchers.csv"
-
-PITCHERS_DF = pd.read_csv(PITCHER_CSV_PATH)
-PITCHER_OPTIONS = ["— Select Pitcher —"] + sorted(PITCHERS_DF["name"].astype(str).tolist())
-PITCHER_MAP = {
-    r["name"]: {"first": r["first"], "last": r["last"]}
-    for _, r in PITCHERS_DF.iterrows()
-}
+def normalize_name(name: str) -> str:
+    if not isinstance(name, str):
+        return ""
+    name = unicodedata.normalize("NFKD", name)
+    name = "".join(c for c in name if not unicodedata.combining(c))
+    name = re.sub(r"\s+", " ", name.lower()).strip()
+    return name
 
 # =============================
-# Registry (Savant links)
+# Load Chadwick registry (cached)
 # =============================
 @st.cache_data(show_spinner=False)
 def load_registry():
     df = chadwick_register().copy()
-    df["name"] = (df.get("name_first", "") + " " + df.get("name_last", "")).str.strip()
-    df["mlbam_id"] = df.filter(regex="mlbam").bfill(axis=1).iloc[:, 0]
-    return df[["name", "mlbam_id"]]
+    df["display_name"] = (
+        df.get("name_first", "").fillna("") + " " +
+        df.get("name_last", "").fillna("")
+    ).str.strip()
+    df["norm_name"] = df["display_name"].apply(normalize_name)
+    return df[["name_first", "name_last", "display_name", "norm_name"]]
 
 REGISTRY = load_registry()
 
 # =============================
-# Helpers
+# Resolve pitcher with Statcast-backed disambiguation
 # =============================
-def slugify(name):
-    return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+def resolve_pitcher(input_name: str, season: int, role: str):
+    if not input_name or len(input_name.strip().split()) < 2:
+        raise ValueError("Please enter full first and last name.")
 
-def savant_url(name):
-    r = REGISTRY[REGISTRY["name"] == name]
-    return None if r.empty else f"https://baseballsavant.mlb.com/savant-player/{slugify(name)}-{int(r.iloc[0]['mlbam_id'])}"
+    norm = normalize_name(input_name)
+    matches = REGISTRY[REGISTRY["norm_name"] == norm]
 
+    if matches.empty:
+        raise ValueError(f"No pitcher found for '{input_name}'.")
+
+    enriched = []
+
+    # Enrich each candidate with Statcast data (bounded: usually 1–2)
+    for _, r in matches.iterrows():
+        try:
+            df = get_pitcher_data(r["name_first"], r["name_last"], season)
+        except ValueError:
+            continue
+
+        if df.empty:
+            continue
+
+        throws = "LHP" if df["p_throws"].iloc[0] == "L" else "RHP"
+
+        # infer team from Statcast data
+        team = df["home_team"].mode().iloc[0] if "home_team" in df else "UNK"
+
+        enriched.append({
+            "first": r["name_first"],
+            "last": r["name_last"],
+            "display": r["display_name"],
+            "throws": throws,
+            "team": team,
+        })
+
+    if not enriched:
+        raise ValueError(f"No Statcast data found for '{input_name}' in {season}.")
+
+    if len(enriched) == 1:
+        e = enriched[0]
+        return e["first"], e["last"], e["display"]
+
+    # Multiple valid candidates → radio disambiguation
+    st.warning(f'Multiple pitchers named "{input_name}" found in {season}. Please select:')
+
+    options = {
+        f'{e["display"]} — {e["throws"]} — {e["team"]}': e
+        for e in enriched
+    }
+
+    choice = st.radio(
+        f"Select {role} Pitcher",
+        list(options.keys()),
+        key=f"disambiguate_{role}",
+    )
+
+    e = options[choice]
+    return e["first"], e["last"], e["display"]
+
+# =============================
+# Analytics helpers
+# =============================
 def get_pitcher_throws(df):
     return None if df.empty else ("RHP" if df["p_throws"].iloc[0] == "R" else "LHP")
-
-def render_pitcher_header(name, context):
-    url = savant_url(name)
-    st.markdown(
-        f"""
-        <h2 style="margin-bottom:4px;">
-          {name}
-          <a href="{url}" target="_blank"
-             style="font-size:16px; opacity:.7; text-decoration:none; border-bottom:none;">
-            🔗
-          </a>
-        </h2>
-        <i>{context}</i>
-        """,
-        unsafe_allow_html=True,
-    )
 
 def split_by_inning(df):
     return {
@@ -154,17 +194,33 @@ def render_table(df, cls):
 # Controls
 # =============================
 c1, c2, c3 = st.columns([3,3,2])
-with c1: away = st.selectbox("Away Pitcher", PITCHER_OPTIONS)
-with c2: home = st.selectbox("Home Pitcher", PITCHER_OPTIONS)
-with c3: season = st.selectbox("Season", [2025, 2026])
+with c1:
+    away_input = st.text_input("Away Pitcher (First Last)")
+with c2:
+    home_input = st.text_input("Home Pitcher (First Last)")
+with c3:
+    season = st.selectbox("Season", [2025, 2026])
 
 run = st.button("Run Matchup", use_container_width=True)
-if not run or away.startswith("—") or home.startswith("—"):
+if not run:
     st.stop()
 
+# =============================
+# Resolve pitchers
+# =============================
 try:
-    away_df = get_pitcher_data(PITCHER_MAP[away]["first"], PITCHER_MAP[away]["last"], season)
-    home_df = get_pitcher_data(PITCHER_MAP[home]["first"], PITCHER_MAP[home]["last"], season)
+    away_first, away_last, away_name = resolve_pitcher(away_input, season, "Away")
+    home_first, home_last, home_name = resolve_pitcher(home_input, season, "Home")
+except ValueError as e:
+    st.error(str(e))
+    st.stop()
+
+# =============================
+# Pull Statcast data
+# =============================
+try:
+    away_df = get_pitcher_data(away_first, away_last, season)
+    home_df = get_pitcher_data(home_first, home_last, season)
 except ValueError as e:
     st.error(str(e))
     st.stop()
@@ -177,14 +233,9 @@ tabs = st.tabs(["All","Early (1–2)","Middle (3–4)","Late (5+)"])
 for t, key in zip(tabs, ["All","Early (1–2)","Middle (3–4)","Late (5+)"]):
     with t:
         # Away
-        render_pitcher_header(
-            away,
-            f"{get_pitcher_throws(away_df)} | Away Pitcher • {key} • {season}"
-        )
-
-        # spacing before expander (this is the requested fix)
+        st.markdown(f"## {away_name}")
+        st.markdown(f"*{get_pitcher_throws(away_df)} | Away Pitcher • {key} • {season}*")
         st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
-
         with st.expander("Show Pitch Mix (Season Overall)"):
             render_table(away_mix, "dk-mix")
 
@@ -200,13 +251,9 @@ for t, key in zip(tabs, ["All","Early (1–2)","Middle (3–4)","Late (5+)"]):
         st.divider()
 
         # Home
-        render_pitcher_header(
-            home,
-            f"{get_pitcher_throws(home_df)} | Home Pitcher • {key} • {season}"
-        )
-
+        st.markdown(f"## {home_name}")
+        st.markdown(f"*{get_pitcher_throws(home_df)} | Home Pitcher • {key} • {season}*")
         st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
-
         with st.expander("Show Pitch Mix (Season Overall)"):
             render_table(home_mix, "dk-mix")
 
