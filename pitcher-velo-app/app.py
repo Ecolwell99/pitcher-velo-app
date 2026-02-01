@@ -73,9 +73,21 @@ def load_registry():
         df.get("name_last", "").fillna("")
     ).str.strip()
     df["norm_name"] = df["display_name"].apply(normalize_name)
-    return df[["name_first", "name_last", "display_name", "norm_name"]]
+    return df
 
 REGISTRY = load_registry()
+
+def savant_url(display_name: str) -> str | None:
+    row = REGISTRY[REGISTRY["display_name"] == display_name]
+    if row.empty:
+        return None
+    for col in ["key_mlbam", "mlbam_id", "key_mlb"]:
+        if col in row.columns and not pd.isna(row.iloc[0][col]):
+            try:
+                return f"https://baseballsavant.mlb.com/savant-player/{int(row.iloc[0][col])}"
+            except Exception:
+                pass
+    return None
 
 # =============================
 # Resolve pitcher with Statcast-backed disambiguation
@@ -92,7 +104,6 @@ def resolve_pitcher(input_name: str, season: int, role: str):
 
     enriched = []
 
-    # Enrich each candidate with Statcast data (bounded: usually 1–2)
     for _, r in matches.iterrows():
         try:
             df = get_pitcher_data(r["name_first"], r["name_last"], season)
@@ -103,8 +114,6 @@ def resolve_pitcher(input_name: str, season: int, role: str):
             continue
 
         throws = "LHP" if df["p_throws"].iloc[0] == "L" else "RHP"
-
-        # infer team from Statcast data
         team = df["home_team"].mode().iloc[0] if "home_team" in df else "UNK"
 
         enriched.append({
@@ -122,7 +131,6 @@ def resolve_pitcher(input_name: str, season: int, role: str):
         e = enriched[0]
         return e["first"], e["last"], e["display"]
 
-    # Multiple valid candidates → radio disambiguation
     st.warning(f'Multiple pitchers named "{input_name}" found in {season}. Please select:')
 
     options = {
@@ -190,6 +198,25 @@ def build_pitch_mix_overall(df):
 def render_table(df, cls):
     st.markdown(df.to_html(index=False, classes=f"dk-table {cls}", escape=False), unsafe_allow_html=True)
 
+def render_pitcher_header(name: str, context: str):
+    url = savant_url(name)
+    if url:
+        st.markdown(
+            f"""
+            <h2 style="margin-bottom:4px;">
+              {name}
+              <a href="{url}" target="_blank"
+                 style="font-size:16px; opacity:.7; text-decoration:none; border-bottom:none;">
+                🔗
+              </a>
+            </h2>
+            <i>{context}</i>
+            """,
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(f"## {name}\n*{context}*")
+
 # =============================
 # Controls
 # =============================
@@ -232,9 +259,10 @@ tabs = st.tabs(["All","Early (1–2)","Middle (3–4)","Late (5+)"])
 
 for t, key in zip(tabs, ["All","Early (1–2)","Middle (3–4)","Late (5+)"]):
     with t:
-        # Away
-        st.markdown(f"## {away_name}")
-        st.markdown(f"*{get_pitcher_throws(away_df)} | Away Pitcher • {key} • {season}*")
+        render_pitcher_header(
+            away_name,
+            f"{get_pitcher_throws(away_df)} | Away Pitcher • {key} • {season}"
+        )
         st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
         with st.expander("Show Pitch Mix (Season Overall)"):
             render_table(away_mix, "dk-mix")
@@ -250,9 +278,10 @@ for t, key in zip(tabs, ["All","Early (1–2)","Middle (3–4)","Late (5+)"]):
 
         st.divider()
 
-        # Home
-        st.markdown(f"## {home_name}")
-        st.markdown(f"*{get_pitcher_throws(home_df)} | Home Pitcher • {key} • {season}*")
+        render_pitcher_header(
+            home_name,
+            f"{get_pitcher_throws(home_df)} | Home Pitcher • {key} • {season}"
+        )
         st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
         with st.expander("Show Pitch Mix (Season Overall)"):
             render_table(home_mix, "dk-mix")
