@@ -3,7 +3,6 @@ import pandas as pd
 import numpy as np
 import re
 import unicodedata
-from pathlib import Path
 from pybaseball import chadwick_register
 from data import get_pitcher_data
 
@@ -69,19 +68,19 @@ def normalize_name(name: str) -> str:
 @st.cache_data(show_spinner=False)
 def load_registry():
     df = chadwick_register().copy()
-
     df["display_name"] = (
         df.get("name_first", "").fillna("") + " " +
         df.get("name_last", "").fillna("")
     ).str.strip()
-
     df["norm_name"] = df["display_name"].apply(normalize_name)
-
-    return df[["display_name", "name_first", "name_last", "norm_name"]]
+    return df
 
 REGISTRY = load_registry()
 
-def resolve_pitcher(input_name: str):
+# =============================
+# Pitcher resolution with disambiguation
+# =============================
+def resolve_pitcher(input_name: str, role: str):
     if not input_name or len(input_name.strip().split()) < 2:
         raise ValueError("Please enter full first and last name.")
 
@@ -91,13 +90,25 @@ def resolve_pitcher(input_name: str):
     if matches.empty:
         raise ValueError(f"No pitcher found for '{input_name}'.")
 
-    if len(matches) > 1:
-        raise ValueError(
-            f"Multiple players named '{input_name}' found. "
-            "Please refine your input."
-        )
+    if len(matches) == 1:
+        row = matches.iloc[0]
+        return row["name_first"], row["name_last"], row["display_name"]
 
-    row = matches.iloc[0]
+    # Multiple matches → disambiguation
+    st.warning(f'Multiple pitchers named "{input_name}" found. Please select the correct pitcher:')
+
+    options = []
+    for _, r in matches.iterrows():
+        label = r["display_name"]
+        options.append(label)
+
+    choice = st.radio(
+        label=f"Select {role} Pitcher",
+        options=options,
+        key=f"disambiguate_{role}",
+    )
+
+    row = matches[matches["display_name"] == choice].iloc[0]
     return row["name_first"], row["name_last"], row["display_name"]
 
 # =============================
@@ -152,7 +163,7 @@ def render_table(df, cls):
     st.markdown(df.to_html(index=False, classes=f"dk-table {cls}", escape=False), unsafe_allow_html=True)
 
 # =============================
-# Controls (free text)
+# Controls
 # =============================
 c1, c2, c3 = st.columns([3,3,2])
 with c1:
@@ -167,17 +178,17 @@ if not run:
     st.stop()
 
 # =============================
-# Resolve pitchers
+# Resolve pitchers (with radio disambiguation)
 # =============================
 try:
-    away_first, away_last, away_name = resolve_pitcher(away_input)
-    home_first, home_last, home_name = resolve_pitcher(home_input)
+    away_first, away_last, away_name = resolve_pitcher(away_input, "Away")
+    home_first, home_last, home_name = resolve_pitcher(home_input, "Home")
 except ValueError as e:
     st.error(str(e))
     st.stop()
 
 # =============================
-# Pull Statcast data (fast)
+# Pull Statcast data
 # =============================
 try:
     away_df = get_pitcher_data(away_first, away_last, season)
