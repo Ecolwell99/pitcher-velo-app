@@ -20,7 +20,7 @@ st.markdown(
 )
 
 # =============================
-# Global CSS (dark, zebra, trader-scan)
+# Global CSS
 # =============================
 TABLE_CSS = """
 <style>
@@ -30,97 +30,48 @@ TABLE_CSS = """
   font-size: 14px;
   table-layout: fixed;
 }
-
 .dk-table th, .dk-table td {
   padding: 10px 12px;
   border: 1px solid rgba(255,255,255,0.08);
-  vertical-align: top;
 }
-
 .dk-table th {
   text-align: left;
   background: rgba(255,255,255,0.06);
   color: rgba(255,255,255,0.85);
-  font-weight: 600;
 }
-
-.dk-table td {
-  color: rgba(255,255,255,0.88);
-}
-
 .dk-table tr:nth-child(even) td {
   background: rgba(255,255,255,0.045);
 }
-.dk-table tr:nth-child(odd) td {
-  background: rgba(0,0,0,0);
-}
-
-/* Bias table: keep Count narrow, Bias wide */
-.dk-bias th:nth-child(1), .dk-bias td:nth-child(1) {
-  width: 110px;
-  white-space: nowrap;
-}
-.dk-bias th:nth-child(2), .dk-bias td:nth-child(2) {
-  width: calc(100% - 110px);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* Pitch mix */
-.dk-mix th:nth-child(1), .dk-mix td:nth-child(1) { width: 140px; white-space: nowrap; }
-.dk-mix th:nth-child(2), .dk-mix td:nth-child(2) { width: 100px; white-space: nowrap; text-align:right; }
-.dk-mix th:nth-child(3), .dk-mix td:nth-child(3) { width: 100px; white-space: nowrap; text-align:right; }
-.dk-mix th:nth-child(4), .dk-mix td:nth-child(4) { width: auto;  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dk-bias th:nth-child(1), .dk-bias td:nth-child(1) { width: 110px; }
+.dk-bias th:nth-child(2), .dk-bias td:nth-child(2) { width: auto; }
+.dk-mix th:nth-child(1), .dk-mix td:nth-child(1) { width: 140px; }
+.dk-mix th:nth-child(2), .dk-mix td:nth-child(2) { width: 100px; text-align:right; }
+.dk-mix th:nth-child(3), .dk-mix td:nth-child(3) { width: 100px; text-align:right; }
 </style>
 """
 st.markdown(TABLE_CSS, unsafe_allow_html=True)
 
 # =============================
-# Load pitcher list (STATIC CSV — ROBUST PATH)
+# Load pitcher list (CSV)
 # =============================
 BASE_DIR = Path(__file__).resolve().parent
 PITCHER_CSV_PATH = BASE_DIR / "assets" / "pitchers.csv"
 
-try:
-    PITCHERS_DF = pd.read_csv(PITCHER_CSV_PATH)
-except Exception as e:
-    st.error(f"Failed to load pitchers.csv at {PITCHER_CSV_PATH}: {e}")
-    st.stop()
-
-required_cols = {"name", "first", "last"}
-if not required_cols.issubset(PITCHERS_DF.columns):
-    st.error("pitchers.csv must contain columns: name, first, last")
-    st.stop()
-
-PITCHERS_DF = PITCHERS_DF.dropna(subset=["name", "first", "last"])
-PITCHERS_DF["name"] = PITCHERS_DF["name"].astype(str).str.strip()
-
-PITCHER_OPTIONS = ["— Select Pitcher —"] + sorted(PITCHERS_DF["name"].tolist())
-
+PITCHERS_DF = pd.read_csv(PITCHER_CSV_PATH)
+PITCHER_OPTIONS = ["— Select Pitcher —"] + sorted(PITCHERS_DF["name"].astype(str).tolist())
 PITCHER_MAP = {
-    row["name"]: {"first": row["first"], "last": row["last"]}
-    for _, row in PITCHERS_DF.iterrows()
+    r["name"]: {"first": r["first"], "last": r["last"]}
+    for _, r in PITCHERS_DF.iterrows()
 }
 
 # =============================
-# Load & cache registry (Savant links only)
+# Registry (Savant links)
 # =============================
 @st.cache_data(show_spinner=False)
 def load_registry():
     df = chadwick_register().copy()
-    df["name"] = (
-        df.get("name_first", "").fillna("") + " " +
-        df.get("name_last", "").fillna("")
-    ).str.strip()
-
-    for col in ["key_mlbam", "mlbam_id", "key_mlb"]:
-        if col in df.columns:
-            df["mlbam_id"] = df[col]
-            break
-    else:
-        df["mlbam_id"] = np.nan
-
+    df["name"] = (df.get("name_first", "") + " " + df.get("name_last", "")).str.strip()
+    df["mlbam_id"] = df.filter(regex="mlbam").bfill(axis=1).iloc[:, 0]
     return df[["name", "mlbam_id"]]
 
 REGISTRY = load_registry()
@@ -128,42 +79,22 @@ REGISTRY = load_registry()
 # =============================
 # Helpers
 # =============================
-MIN_PITCHES = 1
-
-def slugify(name: str) -> str:
+def slugify(name):
     return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
 
-def savant_url(name: str):
-    row = REGISTRY[REGISTRY["name"] == name]
-    if row.empty or pd.isna(row.iloc[0]["mlbam_id"]):
-        return None
-    return f"https://baseballsavant.mlb.com/savant-player/{slugify(name)}-{int(row.iloc[0]['mlbam_id'])}"
+def savant_url(name):
+    r = REGISTRY[REGISTRY["name"] == name]
+    return None if r.empty else f"https://baseballsavant.mlb.com/savant-player/{slugify(name)}-{int(r.iloc[0]['mlbam_id'])}"
 
-def get_pitcher_throws(df: pd.DataFrame) -> str | None:
-    if df is None or df.empty or "p_throws" not in df.columns:
-        return None
-    v = df["p_throws"].dropna()
-    if v.empty:
-        return None
-    return "RHP" if v.iloc[0] == "R" else "LHP"
+def get_pitcher_throws(df):
+    return None if df.empty else ("RHP" if df["p_throws"].iloc[0] == "R" else "LHP")
 
-def render_pitcher_header(name: str, context: str):
+def render_pitcher_header(name, context):
     url = savant_url(name)
-    if url:
-        st.markdown(
-            f"""
-            <div style="display:flex; align-items:center; gap:10px;">
-                <h2 style="margin:0;">{name}</h2>
-                <a href="{url}" target="_blank"
-                   style="text-decoration:none; font-size:16px; opacity:0.75;">🔗</a>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-    else:
-        st.markdown(f"## {name}")
-
-    st.markdown(f"*{context}*")
+    st.markdown(
+        f"<h2 style='margin-bottom:4px'>{name} <a href='{url}' target='_blank' style='font-size:16px;opacity:.7'>🔗</a></h2><i>{context}</i>",
+        unsafe_allow_html=True,
+    )
 
 def split_by_inning(df):
     return {
@@ -174,186 +105,86 @@ def split_by_inning(df):
     }
 
 def build_bias_tables(df):
-    if df is None or df.empty:
-        return pd.DataFrame(columns=["Count", "Bias"]), pd.DataFrame(columns=["Count", "Bias"])
-
-    df = df[df["stand"].isin(["R", "L"])]
-
-    def make_side(side):
+    def make(side):
         rows = []
-        for count, g in df[df["stand"] == side].groupby("count"):
-            speeds = g["release_speed"].dropna().to_numpy()
-            if len(speeds) < MIN_PITCHES:
-                continue
-
-            cutoff = round(float(np.mean(speeds)), 1)
-            over = float((speeds >= cutoff).mean())
-
-            if over >= 0.5:
-                bias = f"{round(over*100,1)}% Over {cutoff:.1f}"
-            else:
-                bias = f"{round((1-over)*100,1)}% Under {cutoff:.1f}"
-
-            rows.append({"Count": count, "Bias": bias})
-
+        for c, g in df[df["stand"] == side].groupby("count"):
+            v = g["release_speed"].dropna()
+            if v.empty: continue
+            m = v.mean()
+            p = (v >= m).mean()
+            rows.append({
+                "Count": c,
+                "Bias": f"{round(max(p,1-p)*100,1)}% {'Over' if p>=.5 else 'Under'} {m:.1f}"
+            })
         out = pd.DataFrame(rows)
-        if out.empty:
-            return pd.DataFrame(columns=["Count", "Bias"])
+        if out.empty: return out
+        out["s"] = out["Count"].apply(lambda x: int(x.split("-")[0])*10+int(x.split("-")[1]))
+        return out.sort_values("s").drop(columns="s")
+    return make("L"), make("R")
 
-        out["sort"] = out["Count"].apply(lambda x: int(x.split("-")[0]) * 10 + int(x.split("-")[1]))
-        out = out.sort_values("sort").drop(columns="sort").reset_index(drop=True)
-        return out
+def build_pitch_mix_overall(df):
+    if df.empty: return pd.DataFrame(columns=["Pitch Type","Usage %","Avg MPH"])
+    g = df[df["pitch_type"] != "PO"].dropna(subset=["pitch_type"])
+    if g.empty: return pd.DataFrame(columns=["Pitch Type","Usage %","Avg MPH"])
+    mix = g.groupby("pitch_type").agg(
+        P=("pitch_type","size"),
+        V=("release_speed","mean")
+    ).reset_index().rename(columns={"pitch_type":"Pitch Type"})
+    mix["Usage %"] = (mix["P"]/mix["P"].sum()*100).round(1).astype(str)+"%"
+    mix["Avg MPH"] = mix["V"].round(1).astype(str)
+    return mix.sort_values("Usage %", ascending=False)[["Pitch Type","Usage %","Avg MPH"]]
 
-    return make_side("L"), make_side("R")
-
-def build_pitch_mix_overall(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Pitch mix computed OVERALL for the entire season dataset passed in.
-    Requirements:
-      - Use all pitches from the season provided in df
-      - Exclude 'PO' pitchouts
-      - Columns: Pitch Type | Usage % | Avg MPH
-      - Sorted by Usage % descending
-      - One decimal place
-      - No index column
-    """
-    if df is None or df.empty or "pitch_type" not in df.columns:
-        return pd.DataFrame(columns=["Pitch Type", "Usage %", "Avg MPH"])
-
-    # Exclude pitchouts
-    g = df.dropna(subset=["pitch_type"])
-    g = g[g["pitch_type"] != "PO"].copy()
-    if g.empty:
-        return pd.DataFrame(columns=["Pitch Type", "Usage %", "Avg MPH"])
-
-    total = len(g)
-    mix = (
-        g.groupby("pitch_type")
-         .agg(Pitches=("pitch_type", "size"), AvgVelo=("release_speed", "mean"))
-         .reset_index()
-         .rename(columns={"pitch_type": "Pitch Type"})
-    )
-
-    mix["Usage %"] = (mix["Pitches"] / total * 100.0).round(1)
-    mix["Avg MPH"] = mix["AvgVelo"].round(1)
-
-    # Sort by Usage % descending
-    mix = mix.sort_values("Usage %", ascending=False).reset_index(drop=True)
-
-    # Format Usage % as string with one decimal and trailing %
-    mix["Usage %"] = mix["Usage %"].map(lambda x: f"{x:.1f}%")
-    mix["Avg MPH"] = mix["Avg MPH"].map(lambda x: f"{x:.1f}")
-
-    return mix[["Pitch Type", "Usage %", "Avg MPH"]]
-
-def render_table(df: pd.DataFrame, table_class: str):
-    df = df.copy().reset_index(drop=True)
-    html = df.to_html(index=False, classes=f"dk-table {table_class}", escape=False)
-    st.markdown(html, unsafe_allow_html=True)
+def render_table(df, cls):
+    st.markdown(df.to_html(index=False, classes=f"dk-table {cls}", escape=False), unsafe_allow_html=True)
 
 # =============================
-# Matchup controls
+# Controls
 # =============================
-st.markdown("### Matchup")
+c1, c2, c3 = st.columns([3,3,2])
+with c1: away = st.selectbox("Away Pitcher", PITCHER_OPTIONS)
+with c2: home = st.selectbox("Home Pitcher", PITCHER_OPTIONS)
+with c3: season = st.selectbox("Season", [2025, 2026])
 
-c1, c2, c3 = st.columns([3, 3, 2])
-with c1:
-    away = st.selectbox("Away Pitcher", PITCHER_OPTIONS)
-with c2:
-    home = st.selectbox("Home Pitcher", PITCHER_OPTIONS)
-with c3:
-    season = st.selectbox("Season", [2025, 2026])
-
-c_spacer, c_btn = st.columns([8, 1])
-with c_btn:
-    run = st.button("Run Matchup", use_container_width=True)
-
-st.divider()
-
+run = st.button("Run Matchup", use_container_width=True)
 if not run or away.startswith("—") or home.startswith("—"):
     st.stop()
 
-away_meta = PITCHER_MAP[away]
-home_meta = PITCHER_MAP[home]
-
-# =============================
-# SAFE Statcast fetch with clear messaging
-# =============================
 try:
-    # fetch full-season data for each pitcher (used both for overall pitch mix and for per-inning splits)
-    away_df = get_pitcher_data(away_meta["first"], away_meta["last"], season)
-except ValueError:
-    st.error(f"No Statcast data available for **{away} ({season})**.")
-    st.stop()
-
-try:
-    home_df = get_pitcher_data(home_meta["first"], home_meta["last"], season)
-except ValueError:
-    st.error(f"No Statcast data available for **{home} ({season})**.")
-    st.stop()
-
-# Compute throws
-away_throw = get_pitcher_throws(away_df)
-home_throw = get_pitcher_throws(home_df)
-
-# Compute overall pitch mix ONCE per pitcher per run (uses ALL season pitches)
-away_pitch_mix_overall = build_pitch_mix_overall(away_df)
-home_pitch_mix_overall = build_pitch_mix_overall(home_df)
+    away_df = get_pitcher_data(PITCHER_MAP[away]["first"], PITCHER_MAP[away]["last"], season)
+    home_df = get_pitcher_data(PITCHER_MAP[home]["first"], PITCHER_MAP[home]["last"], season)
+except ValueError as e:
+    st.error(str(e)); st.stop()
 
 # =============================
-# Pitch Mix expanders (placed ONCE per pitcher, directly under a top-level header)
-# Requirements:
-#  - Label EXACTLY "Show Pitch Mix (Season Overall)"
-#  - Collapsed by default
-#  - Static unique keys per pitcher: "pitch_mix_away" and "pitch_mix_home"
-#  - NOT inside inning tabs loop
+# Pitch Mix (Season Overall) — FIXED
 # =============================
-# Top-level headers for expanders (these headers are the anchors for the expander placement)
-render_pitcher_header(away, f"{away_throw} | Away Pitcher • Season Overall • {season}")
-with st.expander("Show Pitch Mix (Season Overall)", expanded=False, key="pitch_mix_away"):
-    render_table(away_pitch_mix_overall, "dk-mix")
+render_pitcher_header(away, f"{get_pitcher_throws(away_df)} | Away Pitcher • Season Overall • {season}")
+with st.expander("Show Pitch Mix (Season Overall)", key="pitch_mix_away"):
+    render_table(build_pitch_mix_overall(away_df), "dk-mix")
 
 st.divider()
 
-render_pitcher_header(home, f"{home_throw} | Home Pitcher • Season Overall • {season}")
-with st.expander("Show Pitch Mix (Season Overall)", expanded=False, key="pitch_mix_home"):
-    render_table(home_pitch_mix_overall, "dk-mix")
+render_pitcher_header(home, f"{get_pitcher_throws(home_df)} | Home Pitcher • Season Overall • {season}")
+with st.expander("Show Pitch Mix (Season Overall)", key="pitch_mix_home"):
+    render_table(build_pitch_mix_overall(home_df), "dk-mix")
 
 st.divider()
 
 # =============================
-# Now render per-inning tabs (bias tables). Pitch Mix does NOT change by inning.
-# We will still show per-inning headers inside each tab for context, but the Pitch Mix expander
-# is not in these loops (per requirement 4).
+# Bias tables by inning
 # =============================
-away_groups = split_by_inning(away_df)
-home_groups = split_by_inning(home_df)
-
-tabs = st.tabs(["All", "Early (1–2)", "Middle (3–4)", "Late (5+)"])
-
-for tab, key in zip(tabs, ["All", "Early (1–2)", "Middle (3–4)", "Late (5+)"]):
-    with tab:
-        # Away section (per-inning header for context only)
-        render_pitcher_header(away, f"{away_throw} | Away Pitcher • {key} • {season}")
-        away_lhb, away_rhb = build_bias_tables(away_groups[key])
-        col_l, col_r = st.columns(2)
-        with col_l:
-            st.markdown("**vs LHB**")
-            render_table(away_lhb, "dk-bias")
-        with col_r:
-            st.markdown("**vs RHB**")
-            render_table(away_rhb, "dk-bias")
-
-        st.divider()
-
-        # Home section (per-inning header for context only)
-        render_pitcher_header(home, f"{home_throw} | Home Pitcher • {key} • {season}")
-        home_lhb, home_rhb = build_bias_tables(home_groups[key])
-        col_l2, col_r2 = st.columns(2)
-        with col_l2:
-            st.markdown("**vs LHB**")
-            render_table(home_lhb, "dk-bias")
-        with col_r2:
-            st.markdown("**vs RHB**")
-            render_table(home_rhb, "dk-bias")
+tabs = st.tabs(["All","Early (1–2)","Middle (3–4)","Late (5+)"])
+for t, key in zip(tabs, ["All","Early (1–2)","Middle (3–4)","Late (5+)"]):
+    with t:
+        for label, df in [("Away Pitcher", away_df), ("Home Pitcher", home_df)]:
+            groups = split_by_inning(df)
+            render_pitcher_header(
+                away if label=="Away Pitcher" else home,
+                f"{get_pitcher_throws(df)} | {label} • {key} • {season}"
+            )
+            lhb, rhb = build_bias_tables(groups[key])
+            cL, cR = st.columns(2)
+            with cL: st.markdown("**vs LHB**"); render_table(lhb,"dk-bias")
+            with cR: st.markdown("**vs RHB**"); render_table(rhb,"dk-bias")
+            st.divider()
 
