@@ -304,14 +304,9 @@ for tab, key in zip(tabs, ["All", "Early (1–2)", "Middle (3–4)", "Late (5+)"
         # -------------------------
         render_pitcher_header(away, f"{away_throw} | Away Pitcher • {key} • {season}")
 
-        # Pitch Mix toggle (Show/Hide) — THIS is the dropdown you meant
-        mix_toggle_away = st.selectbox(
-            "Pitch Mix",
-            ["Show Pitch Mix", "Hide Pitch Mix"],
-            index=0,
-            key=f"mix_toggle_away_{key}",
-        )
-        if mix_toggle_away == "Show Pitch Mix":
+        # Pitch Mix expander (the table itself lives inside this dropdown)
+        # collapsed by default to keep the view clean; expand to show the table
+        with st.expander("Pitch Mix ▾", expanded=False, key=f"mix_expander_away_{key}"):
             away_mix = build_pitch_mix(away_groups[key])
             render_table(away_mix, "dk-mix")
 
@@ -332,13 +327,7 @@ for tab, key in zip(tabs, ["All", "Early (1–2)", "Middle (3–4)", "Late (5+)"
         # -------------------------
         render_pitcher_header(home, f"{home_throw} | Home Pitcher • {key} • {season}")
 
-        mix_toggle_home = st.selectbox(
-            "Pitch Mix",
-            ["Show Pitch Mix", "Hide Pitch Mix"],
-            index=0,
-            key=f"mix_toggle_home_{key}",
-        )
-        if mix_toggle_home == "Show Pitch Mix":
+        with st.expander("Pitch Mix ▾", expanded=False, key=f"mix_expander_home_{key}"):
             home_mix = build_pitch_mix(home_groups[key])
             render_table(home_mix, "dk-mix")
 
