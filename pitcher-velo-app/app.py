@@ -50,6 +50,10 @@ TABLE_CSS = """
   margin-left: 6px;
   cursor: help;
 }
+
+.dk-low {
+  opacity: 0.45;
+}
 </style>
 """
 st.markdown(TABLE_CSS, unsafe_allow_html=True)
@@ -93,7 +97,7 @@ def savant_url(display_name: str) -> str | None:
     return None
 
 # =============================
-# Resolve pitcher with Statcast-backed disambiguation
+# Resolve pitcher
 # =============================
 def resolve_pitcher(input_name: str, season: int, role: str):
     if not input_name or len(input_name.strip().split()) < 2:
@@ -116,15 +120,10 @@ def resolve_pitcher(input_name: str, season: int, role: str):
         if df.empty:
             continue
 
-        throws = "LHP" if df["p_throws"].iloc[0] == "L" else "RHP"
-        team = df["home_team"].mode().iloc[0] if "home_team" in df else "UNK"
-
         enriched.append({
             "first": r["name_first"],
             "last": r["name_last"],
             "display": r["display_name"],
-            "throws": throws,
-            "team": team,
         })
 
     if not enriched:
@@ -136,10 +135,7 @@ def resolve_pitcher(input_name: str, season: int, role: str):
 
     st.warning(f'Multiple pitchers named "{input_name}" found in {season}. Please select:')
 
-    options = {
-        f'{e["display"]} — {e["throws"]} — {e["team"]}': e
-        for e in enriched
-    }
+    options = {e["display"]: e for e in enriched}
 
     choice = st.radio(
         f"Select {role} Pitcher",
@@ -170,25 +166,29 @@ def build_bias_tables(df):
         for c, g in df[df["stand"] == side].groupby("count"):
             v = g["release_speed"].dropna()
             n = len(v)
-
-            # 🔴 Suppress extremely small samples
-            if n < 10:
+            if n == 0:
                 continue
 
             m = v.mean()
             p = (v >= m).mean()
-            bias_text = f"{round(max(p,1-p)*100,1)}% {'Over' if p>=.5 else 'Under'} {m:.1f}"
 
-            # 🟡 Low-sample indicator for 10–19
-            if n < 20:
-                bias_text += (
-                    ' <span class="dk-info" '
-                    'title="Low sample size (10–19 pitches). Interpret directionally.">ⓘ</span>'
-                )
+            bias = f"{round(max(p,1-p)*100,1)}% {'Over' if p>=.5 else 'Under'} {m:.1f}"
+
+            cls = ""
+            tooltip = None
+
+            if n < 10:
+                cls = "dk-low"
+                tooltip = "Very small sample (<10 pitches). Not reliable."
+            elif n < 20:
+                tooltip = "Low sample size (10–19 pitches). Interpret directionally."
+
+            if tooltip:
+                bias += f' <span class="dk-info" title="{tooltip}">ⓘ</span>'
 
             rows.append({
                 "Count": c,
-                "Bias": bias_text,
+                "Bias": f'<span class="{cls}">{bias}</span>' if cls else bias,
             })
 
         out = pd.DataFrame(rows)
