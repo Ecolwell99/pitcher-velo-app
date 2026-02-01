@@ -68,9 +68,9 @@ TABLE_CSS = """
 }
 
 /* Pitch mix */
-.dk-mix th:nth-child(1), .dk-mix td:nth-child(1) { width: 110px; white-space: nowrap; }
-.dk-mix th:nth-child(2), .dk-mix td:nth-child(2) { width: 110px; white-space: nowrap; }
-.dk-mix th:nth-child(3), .dk-mix td:nth-child(3) { width: 130px; white-space: nowrap; }
+.dk-mix th:nth-child(1), .dk-mix td:nth-child(1) { width: 140px; white-space: nowrap; }
+.dk-mix th:nth-child(2), .dk-mix td:nth-child(2) { width: 100px; white-space: nowrap; text-align:right; }
+.dk-mix th:nth-child(3), .dk-mix td:nth-child(3) { width: 100px; white-space: nowrap; text-align:right; }
 .dk-mix th:nth-child(4), .dk-mix td:nth-child(4) { width: auto;  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 </style>
 """
@@ -206,43 +206,45 @@ def build_bias_tables(df):
 
     return make_side("L"), make_side("R")
 
-def build_pitch_mix(df: pd.DataFrame) -> pd.DataFrame:
+def build_pitch_mix_overall(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Pitch mix table (overall for the inning group):
-    - Pitch
-    - Usage %
-    - Avg Velo
+    Pitch mix computed OVERALL for the entire season dataset passed in.
+    Requirements:
+      - Use all pitches from the season provided in df
+      - Exclude 'PO' pitchouts
+      - Columns: Pitch Type | Usage % | Avg MPH
+      - Sorted by Usage % descending
+      - One decimal place
+      - No index column
     """
     if df is None or df.empty or "pitch_type" not in df.columns:
-        return pd.DataFrame(columns=["Pitch", "Usage", "Avg Velo", "Notes"])
+        return pd.DataFrame(columns=["Pitch Type", "Usage %", "Avg MPH"])
 
-    g = df.dropna(subset=["pitch_type"]).copy()
+    # Exclude pitchouts
+    g = df.dropna(subset=["pitch_type"])
+    g = g[g["pitch_type"] != "PO"].copy()
     if g.empty:
-        return pd.DataFrame(columns=["Pitch", "Usage", "Avg Velo", "Notes"])
+        return pd.DataFrame(columns=["Pitch Type", "Usage %", "Avg MPH"])
 
     total = len(g)
     mix = (
         g.groupby("pitch_type")
          .agg(Pitches=("pitch_type", "size"), AvgVelo=("release_speed", "mean"))
          .reset_index()
-         .rename(columns={"pitch_type": "Pitch"})
+         .rename(columns={"pitch_type": "Pitch Type"})
     )
 
-    mix["Usage"] = (mix["Pitches"] / total) * 100.0
-    mix["Usage"] = mix["Usage"].round(1).astype(str) + "%"
-    mix["Avg Velo"] = mix["AvgVelo"].round(1)
+    mix["Usage %"] = (mix["Pitches"] / total * 100.0).round(1)
+    mix["Avg MPH"] = mix["AvgVelo"].round(1)
 
-    mix["Notes"] = ""
-    mix = mix.drop(columns=["Pitches", "AvgVelo"])
+    # Sort by Usage % descending
+    mix = mix.sort_values("Usage %", ascending=False).reset_index(drop=True)
 
-    # sort by numeric usage desc
-    mix = mix.sort_values(
-        by="Usage",
-        ascending=False,
-        key=lambda s: s.str.replace("%", "", regex=False).astype(float)
-    ).reset_index(drop=True)
+    # Format Usage % as string with one decimal and trailing %
+    mix["Usage %"] = mix["Usage %"].map(lambda x: f"{x:.1f}%")
+    mix["Avg MPH"] = mix["Avg MPH"].map(lambda x: f"{x:.1f}")
 
-    return mix[["Pitch", "Usage", "Avg Velo", "Notes"]]
+    return mix[["Pitch Type", "Usage %", "Avg MPH"]]
 
 def render_table(df: pd.DataFrame, table_class: str):
     df = df.copy().reset_index(drop=True)
@@ -278,6 +280,7 @@ home_meta = PITCHER_MAP[home]
 # SAFE Statcast fetch with clear messaging
 # =============================
 try:
+    # fetch full-season data for each pitcher (used both for overall pitch mix and for per-inning splits)
     away_df = get_pitcher_data(away_meta["first"], away_meta["last"], season)
 except ValueError:
     st.error(f"No Statcast data available for **{away} ({season})**.")
@@ -289,9 +292,40 @@ except ValueError:
     st.error(f"No Statcast data available for **{home} ({season})**.")
     st.stop()
 
+# Compute throws
 away_throw = get_pitcher_throws(away_df)
 home_throw = get_pitcher_throws(home_df)
 
+# Compute overall pitch mix ONCE per pitcher per run (uses ALL season pitches)
+away_pitch_mix_overall = build_pitch_mix_overall(away_df)
+home_pitch_mix_overall = build_pitch_mix_overall(home_df)
+
+# =============================
+# Pitch Mix expanders (placed ONCE per pitcher, directly under a top-level header)
+# Requirements:
+#  - Label EXACTLY "Show Pitch Mix (Season Overall)"
+#  - Collapsed by default
+#  - Static unique keys per pitcher: "pitch_mix_away" and "pitch_mix_home"
+#  - NOT inside inning tabs loop
+# =============================
+# Top-level headers for expanders (these headers are the anchors for the expander placement)
+render_pitcher_header(away, f"{away_throw} | Away Pitcher • Season Overall • {season}")
+with st.expander("Show Pitch Mix (Season Overall)", expanded=False, key="pitch_mix_away"):
+    render_table(away_pitch_mix_overall, "dk-mix")
+
+st.divider()
+
+render_pitcher_header(home, f"{home_throw} | Home Pitcher • Season Overall • {season}")
+with st.expander("Show Pitch Mix (Season Overall)", expanded=False, key="pitch_mix_home"):
+    render_table(home_pitch_mix_overall, "dk-mix")
+
+st.divider()
+
+# =============================
+# Now render per-inning tabs (bias tables). Pitch Mix does NOT change by inning.
+# We will still show per-inning headers inside each tab for context, but the Pitch Mix expander
+# is not in these loops (per requirement 4).
+# =============================
 away_groups = split_by_inning(away_df)
 home_groups = split_by_inning(home_df)
 
@@ -299,18 +333,8 @@ tabs = st.tabs(["All", "Early (1–2)", "Middle (3–4)", "Late (5+)"])
 
 for tab, key in zip(tabs, ["All", "Early (1–2)", "Middle (3–4)", "Late (5+)"]):
     with tab:
-        # -------------------------
-        # Away Pitcher block
-        # -------------------------
+        # Away section (per-inning header for context only)
         render_pitcher_header(away, f"{away_throw} | Away Pitcher • {key} • {season}")
-
-        # Pitch Mix expander (the table itself lives inside this dropdown)
-        # collapsed by default to keep the view clean; expand to show the table
-        with st.expander("Pitch Mix ▾", expanded=False, key=f"mix_expander_away_{key}"):
-            away_mix = build_pitch_mix(away_groups[key])
-            render_table(away_mix, "dk-mix")
-
-        # Bias tables below
         away_lhb, away_rhb = build_bias_tables(away_groups[key])
         col_l, col_r = st.columns(2)
         with col_l:
@@ -322,15 +346,8 @@ for tab, key in zip(tabs, ["All", "Early (1–2)", "Middle (3–4)", "Late (5+)"
 
         st.divider()
 
-        # -------------------------
-        # Home Pitcher block
-        # -------------------------
+        # Home section (per-inning header for context only)
         render_pitcher_header(home, f"{home_throw} | Home Pitcher • {key} • {season}")
-
-        with st.expander("Pitch Mix ▾", expanded=False, key=f"mix_expander_home_{key}"):
-            home_mix = build_pitch_mix(home_groups[key])
-            render_table(home_mix, "dk-mix")
-
         home_lhb, home_rhb = build_bias_tables(home_groups[key])
         col_l2, col_r2 = st.columns(2)
         with col_l2:
