@@ -109,7 +109,8 @@ def build_bias_tables(df):
         rows = []
         for c, g in df[df["stand"] == side].groupby("count"):
             v = g["release_speed"].dropna()
-            if v.empty: continue
+            if v.empty:
+                continue
             m = v.mean()
             p = (v >= m).mean()
             rows.append({
@@ -117,7 +118,8 @@ def build_bias_tables(df):
                 "Bias": f"{round(max(p,1-p)*100,1)}% {'Over' if p>=.5 else 'Under'} {m:.1f}"
             })
         out = pd.DataFrame(rows)
-        if out.empty: return out
+        if out.empty:
+            return out
         out["s"] = out["Count"].apply(lambda x: int(x.split("-")[0])*10+int(x.split("-")[1]))
         return out.sort_values("s").drop(columns="s")
     return make("L"), make("R")
@@ -157,36 +159,42 @@ try:
 except ValueError as e:
     st.error(str(e)); st.stop()
 
-# =============================
-# Pitch Mix (Season Overall) — RESTORED
-# =============================
-render_pitcher_header(away, f"{get_pitcher_throws(away_df)} | Away Pitcher • Season Overall • {season}")
-with st.expander("Show Pitch Mix (Season Overall)"):
-    render_table(build_pitch_mix_overall(away_df), "dk-mix")
+away_mix = build_pitch_mix_overall(away_df)
+home_mix = build_pitch_mix_overall(home_df)
 
-st.divider()
-
-render_pitcher_header(home, f"{get_pitcher_throws(home_df)} | Home Pitcher • Season Overall • {season}")
-with st.expander("Show Pitch Mix (Season Overall)"):
-    render_table(build_pitch_mix_overall(home_df), "dk-mix")
-
-st.divider()
-
-# =============================
-# Bias tables by inning
-# =============================
 tabs = st.tabs(["All","Early (1–2)","Middle (3–4)","Late (5+)"])
+
 for t, key in zip(tabs, ["All","Early (1–2)","Middle (3–4)","Late (5+)"]):
     with t:
-        for label, df in [("Away Pitcher", away_df), ("Home Pitcher", home_df)]:
-            groups = split_by_inning(df)
-            render_pitcher_header(
-                away if label=="Away Pitcher" else home,
-                f"{get_pitcher_throws(df)} | {label} • {key} • {season}"
-            )
-            lhb, rhb = build_bias_tables(groups[key])
-            cL, cR = st.columns(2)
-            with cL: st.markdown("**vs LHB**"); render_table(lhb,"dk-bias")
-            with cR: st.markdown("**vs RHB**"); render_table(rhb,"dk-bias")
-            st.divider()
+        # Away
+        render_pitcher_header(away, f"{get_pitcher_throws(away_df)} | Away Pitcher • {key} • {season}")
+        with st.expander("Show Pitch Mix (Season Overall)"):
+            render_table(away_mix, "dk-mix")
+
+        lhb, rhb = build_bias_tables(split_by_inning(away_df)[key])
+        cL, cR = st.columns(2)
+        with cL:
+            st.markdown("**vs LHB**")
+            render_table(lhb, "dk-bias")
+        with cR:
+            st.markdown("**vs RHB**")
+            render_table(rhb, "dk-bias")
+
+        st.divider()
+
+        # Home
+        render_pitcher_header(home, f"{get_pitcher_throws(home_df)} | Home Pitcher • {key} • {season}")
+        with st.expander("Show Pitch Mix (Season Overall)"):
+            render_table(home_mix, "dk-mix")
+
+        lhb, rhb = build_bias_tables(split_by_inning(home_df)[key])
+        cL2, cR2 = st.columns(2)
+        with cL2:
+            st.markdown("**vs LHB**")
+            render_table(lhb, "dk-bias")
+        with cR2:
+            st.markdown("**vs RHB**")
+            render_table(rhb, "dk-bias")
+
+        st.divider()
 
