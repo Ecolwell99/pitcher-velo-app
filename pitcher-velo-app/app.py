@@ -20,6 +20,63 @@ st.markdown(
 )
 
 # =============================
+# Global CSS (dark, zebra, trader-scan)
+# =============================
+TABLE_CSS = """
+<style>
+.dk-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  table-layout: fixed;
+}
+
+.dk-table th, .dk-table td {
+  padding: 10px 12px;
+  border: 1px solid rgba(255,255,255,0.08);
+  vertical-align: top;
+}
+
+.dk-table th {
+  text-align: left;
+  background: rgba(255,255,255,0.06);
+  color: rgba(255,255,255,0.85);
+  font-weight: 600;
+}
+
+.dk-table td {
+  color: rgba(255,255,255,0.88);
+}
+
+.dk-table tr:nth-child(even) td {
+  background: rgba(255,255,255,0.045);
+}
+.dk-table tr:nth-child(odd) td {
+  background: rgba(0,0,0,0);
+}
+
+/* Prevent "scrunched" bias table: Count narrow, Bias wide */
+.dk-bias th:nth-child(1), .dk-bias td:nth-child(1) {
+  width: 120px;
+  white-space: nowrap;
+}
+.dk-bias th:nth-child(2), .dk-bias td:nth-child(2) {
+  width: calc(100% - 120px);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Pitch mix layout */
+.dk-mix th:nth-child(1), .dk-mix td:nth-child(1) { width: 120px; white-space: nowrap; }
+.dk-mix th:nth-child(2), .dk-mix td:nth-child(2) { width: 120px; white-space: nowrap; }
+.dk-mix th:nth-child(3), .dk-mix td:nth-child(3) { width: 140px; white-space: nowrap; }
+.dk-mix th:nth-child(4), .dk-mix td:nth-child(4) { width: auto;  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+</style>
+"""
+st.markdown(TABLE_CSS, unsafe_allow_html=True)
+
+# =============================
 # Load pitcher list (STATIC CSV — ROBUST PATH)
 # =============================
 BASE_DIR = Path(__file__).resolve().parent
@@ -132,22 +189,67 @@ def build_bias_tables(df):
             cutoff = round(float(np.mean(speeds)), 1)
             over = float((speeds >= cutoff).mean())
 
-            bias = (
-                f"{round(over*100,1)}% Over {cutoff:.1f} MPH"
-                if over >= 0.5
-                else f"{round((1-over)*100,1)}% Under {cutoff:.1f} MPH"
-            )
+            if over >= 0.5:
+                bias = f"{round(over*100,1)}% Over {cutoff:.1f} MPH"
+            else:
+                bias = f"{round((1-over)*100,1)}% Under {cutoff:.1f} MPH"
 
             rows.append({"Count": count, "Bias": bias})
 
         out = pd.DataFrame(rows)
         if out.empty:
-            return out
+            return pd.DataFrame(columns=["Count", "Bias"])
 
         out["sort"] = out["Count"].apply(lambda x: int(x.split("-")[0]) * 10 + int(x.split("-")[1]))
-        return out.sort_values("sort").drop(columns="sort").reset_index(drop=True)
+        out = out.sort_values("sort").drop(columns="sort").reset_index(drop=True)
+        return out
 
     return make_side("L"), make_side("R")
+
+def build_pitch_mix(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Pitch mix for a pitcher (overall, across all batters for the selected inning group):
+    - PitchType
+    - Usage %
+    - Avg Velo
+    """
+    if df is None or df.empty:
+        return pd.DataFrame(columns=["Pitch", "Usage", "Avg Velo", "Notes"])
+
+    if "pitch_type" not in df.columns:
+        return pd.DataFrame(columns=["Pitch", "Usage", "Avg Velo", "Notes"])
+
+    g = df.dropna(subset=["pitch_type"]).copy()
+    if g.empty:
+        return pd.DataFrame(columns=["Pitch", "Usage", "Avg Velo", "Notes"])
+
+    total = len(g)
+    mix = (
+        g.groupby("pitch_type")
+         .agg(
+            Pitches=("pitch_type", "size"),
+            AvgVelo=("release_speed", "mean"),
+         )
+         .reset_index()
+         .rename(columns={"pitch_type": "Pitch"})
+    )
+
+    mix["Usage"] = (mix["Pitches"] / total) * 100.0
+    mix["Avg Velo"] = mix["AvgVelo"].round(1)
+    mix["Usage"] = mix["Usage"].round(1).astype(str) + "%"
+
+    # Notes column (optional helper) – keeps table width stable and avoids empty feel
+    mix["Notes"] = ""
+
+    mix = mix.drop(columns=["Pitches", "AvgVelo"])
+    mix = mix.sort_values(by="Usage", ascending=False, key=lambda s: s.str.replace("%", "", regex=False).astype(float))
+    mix = mix.reset_index(drop=True)
+    return mix[["Pitch", "Usage", "Avg Velo", "Notes"]]
+
+def render_table(df: pd.DataFrame, table_class: str):
+    df = df.copy().reset_index(drop=True)
+    html = df.to_html(index=False, classes=f"dk-table {table_class}", escape=False)
+    st.markdown(html, unsafe_allow_html=True)
 
 # =============================
 # Matchup controls
@@ -199,33 +301,45 @@ tabs = st.tabs(["All", "Early (1–2)", "Middle (3–4)", "Late (5+)"])
 
 for tab, key in zip(tabs, ["All", "Early (1–2)", "Middle (3–4)", "Late (5+)"]):
     with tab:
-        render_pitcher_header(
-            away,
-            f"{away_throw} | Away Pitcher • {key} • {season}",
-        )
+        # -------------------------
+        # Away Pitcher block
+        # -------------------------
+        render_pitcher_header(away, f"{away_throw} | Away Pitcher • {key} • {season}")
 
-        lhb, rhb = build_bias_tables(away_groups[key])
+        away_lhb, away_rhb = build_bias_tables(away_groups[key])
+
         col_l, col_r = st.columns(2)
         with col_l:
             st.markdown("**vs LHB**")
-            st.markdown(lhb.to_html(index=False), unsafe_allow_html=True)
+            render_table(away_lhb, "dk-bias")
         with col_r:
             st.markdown("**vs RHB**")
-            st.markdown(rhb.to_html(index=False), unsafe_allow_html=True)
+            render_table(away_rhb, "dk-bias")
+
+        # Pitch Mix (Away)
+        st.markdown("**Pitch Mix**")
+        away_mix = build_pitch_mix(away_groups[key])
+        render_table(away_mix, "dk-mix")
 
         st.divider()
 
-        render_pitcher_header(
-            home,
-            f"{home_throw} | Home Pitcher • {key} • {season}",
-        )
+        # -------------------------
+        # Home Pitcher block
+        # -------------------------
+        render_pitcher_header(home, f"{home_throw} | Home Pitcher • {key} • {season}")
 
-        lhb, rhb = build_bias_tables(home_groups[key])
+        home_lhb, home_rhb = build_bias_tables(home_groups[key])
+
         col_l2, col_r2 = st.columns(2)
         with col_l2:
             st.markdown("**vs LHB**")
-            st.markdown(lhb.to_html(index=False), unsafe_allow_html=True)
+            render_table(home_lhb, "dk-bias")
         with col_r2:
             st.markdown("**vs RHB**")
-            st.markdown(rhb.to_html(index=False), unsafe_allow_html=True)
+            render_table(home_rhb, "dk-bias")
+
+        # Pitch Mix (Home)
+        st.markdown("**Pitch Mix**")
+        home_mix = build_pitch_mix(home_groups[key])
+        render_table(home_mix, "dk-mix")
 
