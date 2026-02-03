@@ -35,22 +35,16 @@ TABLE_CSS = """
   border: 1px solid rgba(255,255,255,0.08);
 }
 .dk-table th {
-  text-align: left;
   background: rgba(255,255,255,0.06);
-  color: rgba(255,255,255,0.85);
 }
 .dk-table tr:nth-child(even) td {
   background: rgba(255,255,255,0.045);
 }
-.dk-bias th:nth-child(1), .dk-bias td:nth-child(1) { width: 110px; }
-.dk-bias th:nth-child(2), .dk-bias td:nth-child(2) { width: auto; }
-
 .dk-info {
   opacity: 0.6;
   margin-left: 6px;
   cursor: help;
 }
-
 .dk-low {
   opacity: 0.45;
 }
@@ -61,16 +55,13 @@ st.markdown(TABLE_CSS, unsafe_allow_html=True)
 # =============================
 # Name normalization
 # =============================
-def normalize_name(name: str) -> str:
-    if not isinstance(name, str):
-        return ""
+def normalize_name(name):
     name = unicodedata.normalize("NFKD", name)
     name = "".join(c for c in name if not unicodedata.combining(c))
-    name = re.sub(r"\s+", " ", name.lower()).strip()
-    return name
+    return re.sub(r"\s+", " ", name.lower()).strip()
 
 # =============================
-# Load Chadwick registry (cached)
+# Load Chadwick registry
 # =============================
 @st.cache_data(show_spinner=False)
 def load_registry():
@@ -84,157 +75,121 @@ def load_registry():
 
 REGISTRY = load_registry()
 
-def savant_url(display_name: str) -> str | None:
-    row = REGISTRY[REGISTRY["display_name"] == display_name]
-    if row.empty:
-        return None
-    for col in ["key_mlbam", "mlbam_id", "key_mlb"]:
-        if col in row.columns and not pd.isna(row.iloc[0][col]):
-            try:
-                return f"https://baseballsavant.mlb.com/savant-player/{int(row.iloc[0][col])}"
-            except Exception:
-                pass
-    return None
-
 # =============================
 # Resolve pitcher
 # =============================
-def resolve_pitcher(input_name: str, season: int, role: str):
-    if not input_name or len(input_name.strip().split()) < 2:
-        raise ValueError("Please enter full first and last name.")
-
+def resolve_pitcher(input_name, season, role):
     norm = normalize_name(input_name)
     matches = REGISTRY[REGISTRY["norm_name"] == norm]
 
-    if matches.empty:
-        raise ValueError(f"No pitcher found for '{input_name}'.")
-
     enriched = []
-
     for _, r in matches.iterrows():
         try:
             df = get_pitcher_data(r["name_first"], r["name_last"], season)
-        except ValueError:
-            continue
-
-        if df.empty:
-            continue
-
-        enriched.append({
-            "first": r["name_first"],
-            "last": r["name_last"],
-            "display": r["display_name"],
-        })
+            if not df.empty:
+                enriched.append((r["name_first"], r["name_last"], r["display_name"]))
+        except:
+            pass
 
     if not enriched:
         raise ValueError(f"No Statcast data found for '{input_name}' in {season}.")
 
     if len(enriched) == 1:
-        e = enriched[0]
-        return e["first"], e["last"], e["display"]
-
-    st.warning(f'Multiple pitchers named "{input_name}" found in {season}. Please select:')
-
-    options = {e["display"]: e for e in enriched}
+        return enriched[0]
 
     choice = st.radio(
         f"Select {role} Pitcher",
-        list(options.keys()),
-        key=f"disambiguate_{role}",
+        [e[2] for e in enriched],
+        key=f"pick_{role}",
     )
-
-    e = options[choice]
-    return e["first"], e["last"], e["display"]
+    return next(e for e in enriched if e[2] == choice)
 
 # =============================
-# Analytics helpers
+# Bias logic (Rule 1)
 # =============================
-def get_pitcher_throws(df):
-    return None if df.empty else ("RHP" if df["p_throws"].iloc[0] == "R" else "LHP")
-
-def split_by_inning(df):
-    return {
-        "All": df,
-        "Early (1–2)": df[df["inning"].isin([1, 2])],
-        "Middle (3–4)": df[df["inning"].isin([3, 4])],
-        "Late (5+)": df[df["inning"] >= 5],
-    }
+FAST_PITCHES = {"FF", "SI", "FC", "CT"}
+SOFT_PITCHES = {"SL", "CU", "KC", "CH"}
 
 def build_bias_tables(df):
     def make(side):
         rows = []
-        for c, g in df[df["stand"] == side].groupby("count"):
-            v = g["release_speed"].dropna()
-            n = len(v)
-            if n == 0:
+
+        for count, g in df[df["stand"] == side].groupby("count"):
+            speeds = g["release_speed"].dropna()
+            if speeds.empty:
                 continue
 
-            m = v.mean()
-            p = (v >= m).mean()
+            n = len(speeds)
 
-            bias = f"{round(max(p,1-p)*100,1)}% {'Over' if p>=.5 else 'Under'} {m:.1f}"
+            fast = g[g["pitch_type"].isin(FAST_PITCHES)]
+            soft = g[g["pitch_type"].isin(SOFT_PITCHES)]
+
+            fast_pct = len(fast) / n if n else 0
+            soft_pct = len(soft) / n if n else 0
+
+            # --- Boundary selection ---
+            if fast_pct >= 0.55 and not fast.empty:
+                boundary = fast["release_speed"].mean()
+                favored = "Over"
+            elif soft_pct >= 0.55 and not soft.empty:
+                boundary = soft["release_speed"].mean()
+                favored = "Under"
+            else:
+                mid = g[g["pitch_type"].isin({"SL", "CH"})]
+                if not mid.empty:
+                    boundary = mid["release_speed"].mean()
+                elif not soft.empty:
+                    boundary = soft["release_speed"].mean()
+                else:
+                    boundary = speeds.mean()
+                favored = "Over" if (speeds >= boundary).mean() >= 0.5 else "Under"
+
+            if favored == "Over":
+                pct = (speeds >= boundary).mean()
+            else:
+                pct = (speeds < boundary).mean()
+
+            bias = f"{round(pct*100,1)}% {favored} {boundary:.1f}"
 
             cls = ""
-            tooltip = None
-
+            tip = None
             if n < 10:
                 cls = "dk-low"
-                tooltip = "Very small sample (<10 pitches). Not reliable."
+                tip = "Very small sample (<10 pitches)."
             elif n < 20:
-                tooltip = "Low sample size (10–19 pitches). Interpret directionally."
+                tip = "Low sample size (10–19 pitches). Interpret directionally."
 
-            if tooltip:
-                bias += f' <span class="dk-info" title="{tooltip}">ⓘ</span>'
+            if tip:
+                bias += f' <span class="dk-info" title="{tip}">ⓘ</span>'
 
-            rows.append({
-                "Count": c,
-                "Bias": f'<span class="{cls}">{bias}</span>' if cls else bias,
-            })
+            if cls:
+                bias = f'<span class="{cls}">{bias}</span>'
+
+            rows.append({"Count": count, "Bias": bias})
 
         out = pd.DataFrame(rows)
         if out.empty:
             return out
 
-        out["s"] = out["Count"].apply(lambda x: int(x.split("-")[0])*10+int(x.split("-")[1]))
-        return out.sort_values("s").drop(columns="s")
+        out["s"] = out["Count"].apply(lambda x: int(x.split("-")[0])*10 + int(x.split("-")[1]))
+        return out.sort_values("s").drop(columns="s").reset_index(drop=True)
 
     return make("L"), make("R")
 
-def build_pitch_mix_overall(df):
-    if df.empty:
-        return pd.DataFrame(columns=["Pitch Type","Usage %","Avg MPH"])
+# =============================
+# Pitch mix
+# =============================
+def build_pitch_mix(df):
     g = df[df["pitch_type"] != "PO"].dropna(subset=["pitch_type"])
-    if g.empty:
-        return pd.DataFrame(columns=["Pitch Type","Usage %","Avg MPH"])
     mix = g.groupby("pitch_type").agg(
-        P=("pitch_type","size"),
-        V=("release_speed","mean")
-    ).reset_index().rename(columns={"pitch_type":"Pitch Type"})
-    mix["Usage %"] = (mix["P"]/mix["P"].sum()*100).round(1).astype(str)+"%"
-    mix["Avg MPH"] = mix["V"].round(1).astype(str)
-    return mix.sort_values("Usage %", ascending=False)[["Pitch Type","Usage %","Avg MPH"]]
+        Count=("pitch_type","size"),
+        MPH=("release_speed","mean")
+    ).reset_index()
+    mix["Usage %"] = (mix["Count"]/mix["Count"].sum()*100).round(1)
+    return mix.sort_values("Usage %", ascending=False)[["pitch_type","Usage %","MPH"]]
 
-def render_table(df, cls):
-    st.markdown(df.to_html(index=False, classes=f"dk-table {cls}", escape=False), unsafe_allow_html=True)
-
-def render_pitcher_header(name: str, context: str):
-    url = savant_url(name)
-    if url:
-        st.markdown(
-            f"""
-            <h2 style="margin-bottom:4px;">
-              {name}
-              <a href="{url}" target="_blank"
-                 style="font-size:16px; opacity:.7; text-decoration:none; border-bottom:none;">
-                🔗
-              </a>
-            </h2>
-            <i>{context}</i>
-            """,
-            unsafe_allow_html=True,
-        )
-    else:
-        st.markdown(f"## {name}\n*{context}*")
+def render_table(df):
+    st.markdown(df.to_html(index=False, classes="dk-table", escape=False), unsafe_allow_html=True)
 
 # =============================
 # Controls
@@ -247,72 +202,40 @@ with c2:
 with c3:
     season = st.selectbox("Season", [2025, 2026])
 
-run = st.button("Run Matchup", use_container_width=True)
-if not run:
+if not st.button("Run Matchup", use_container_width=True):
     st.stop()
 
-# =============================
-# Resolve pitchers
-# =============================
-try:
-    away_first, away_last, away_name = resolve_pitcher(away_input, season, "Away")
-    home_first, home_last, home_name = resolve_pitcher(home_input, season, "Home")
-except ValueError as e:
-    st.error(str(e))
-    st.stop()
+away_first, away_last, away_name = resolve_pitcher(away_input, season, "Away")
+home_first, home_last, home_name = resolve_pitcher(home_input, season, "Home")
 
-# =============================
-# Pull Statcast data
-# =============================
-try:
-    away_df = get_pitcher_data(away_first, away_last, season)
-    home_df = get_pitcher_data(home_first, home_last, season)
-except ValueError as e:
-    st.error(str(e))
-    st.stop()
-
-away_mix = build_pitch_mix_overall(away_df)
-home_mix = build_pitch_mix_overall(home_df)
+away_df = get_pitcher_data(away_first, away_last, season)
+home_df = get_pitcher_data(home_first, home_last, season)
 
 tabs = st.tabs(["All","Early (1–2)","Middle (3–4)","Late (5+)"])
 
-for t, key in zip(tabs, ["All","Early (1–2)","Middle (3–4)","Late (5+)"]):
-    with t:
-        render_pitcher_header(
-            away_name,
-            f"{get_pitcher_throws(away_df)} | Away Pitcher • {key} • {season}"
-        )
-        st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
-        with st.expander("Show Pitch Mix (Season Overall)"):
-            render_table(away_mix, "dk-mix")
+def split_by_inning(df):
+    return {
+        "All": df,
+        "Early (1–2)": df[df["inning"].isin([1,2])],
+        "Middle (3–4)": df[df["inning"].isin([3,4])],
+        "Late (5+)": df[df["inning"] >= 5],
+    }
 
+for tab, key in zip(tabs, ["All","Early (1–2)","Middle (3–4)","Late (5+)"]):
+    with tab:
+        st.markdown(f"## {away_name}")
         lhb, rhb = build_bias_tables(split_by_inning(away_df)[key])
-        cL, cR = st.columns(2)
-        with cL:
-            st.markdown("**vs LHB**")
-            render_table(lhb,"dk-bias")
-        with cR:
-            st.markdown("**vs RHB**")
-            render_table(rhb,"dk-bias")
+        st.markdown("**vs LHB**")
+        render_table(lhb)
+        st.markdown("**vs RHB**")
+        render_table(rhb)
 
         st.divider()
 
-        render_pitcher_header(
-            home_name,
-            f"{get_pitcher_throws(home_df)} | Home Pitcher • {key} • {season}"
-        )
-        st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
-        with st.expander("Show Pitch Mix (Season Overall)"):
-            render_table(home_mix, "dk-mix")
-
+        st.markdown(f"## {home_name}")
         lhb, rhb = build_bias_tables(split_by_inning(home_df)[key])
-        cL2, cR2 = st.columns(2)
-        with cL2:
-            st.markdown("**vs LHB**")
-            render_table(lhb,"dk-bias")
-        with cR2:
-            st.markdown("**vs RHB**")
-            render_table(rhb,"dk-bias")
-
-        st.divider()
+        st.markdown("**vs LHB**")
+        render_table(lhb)
+        st.markdown("**vs RHB**")
+        render_table(rhb)
 
