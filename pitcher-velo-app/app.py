@@ -182,4 +182,3 @@ for tab,key in zip(tabs,split(away_df).keys()):
         st.markdown(lhb.to_html(index=False,classes="dk-table",escape=False),unsafe_allow_html=True)
         st.markdown("**vs RHB**")
         st.markdown(rhb.to_html(index=False,classes="dk-table",escape=False),unsafe_allow_html=True)
-
