@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
 import re
 import unicodedata
 from pybaseball import chadwick_register
@@ -89,7 +88,6 @@ def build_bias_tables(df):
 
     MIN_SIDE_USAGE = 0.15     # both sides must matter
     MIN_BOUNDARY_USAGE = 0.08 # boundary pitch must not be fringe
-    EPS = 0.05                # tolerance so boundary MPH counts as Over
 
     def make(side):
         rows = []
@@ -147,10 +145,11 @@ def build_bias_tables(df):
                 pt["cum_usage"] = pt["usage"].cumsum()
                 boundary = pt.loc[pt["cum_usage"] >= 0.5].iloc[0]["mph"]
 
-            # ---- compute bias using ALL pitches ----
-            speeds = g["release_speed"]
+            # ---- compute bias using ALL pitches (pitch-type regime) ----
+            pt_mph_map = dict(zip(pt["pitch_type"], pt["mph"]))
+            bucket_mph = g["pitch_type"].map(pt_mph_map)
 
-            over_pct = (speeds >= boundary - EPS).mean()
+            over_pct = (bucket_mph >= boundary).mean()
             under_pct = 1 - over_pct
 
             if over_pct >= under_pct:
