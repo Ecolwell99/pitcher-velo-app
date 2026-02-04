@@ -24,29 +24,12 @@ st.markdown(
 # =============================
 TABLE_CSS = """
 <style>
-.dk-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 14px;
-}
-.dk-table th, .dk-table td {
-  padding: 10px 12px;
-  border: 1px solid rgba(255,255,255,0.08);
-}
-.dk-table th {
-  background: rgba(255,255,255,0.06);
-}
-.dk-table tr:nth-child(even) td {
-  background: rgba(255,255,255,0.045);
-}
-.dk-info {
-  opacity: 0.6;
-  margin-left: 6px;
-  cursor: help;
-}
-.dk-low {
-  opacity: 0.45;
-}
+.dk-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.dk-table th, .dk-table td { padding: 10px 12px; border: 1px solid rgba(255,255,255,0.08); }
+.dk-table th { background: rgba(255,255,255,0.06); }
+.dk-table tr:nth-child(even) td { background: rgba(255,255,255,0.045); }
+.dk-info { opacity: 0.6; margin-left: 6px; cursor: help; }
+.dk-low { opacity: 0.45; }
 </style>
 """
 st.markdown(TABLE_CSS, unsafe_allow_html=True)
@@ -66,8 +49,8 @@ def normalize_name(name):
 def load_registry():
     df = chadwick_register().copy()
     df["display_name"] = (
-        df.get("name_first","").fillna("") + " " +
-        df.get("name_last","").fillna("")
+        df.get("name_first", "").fillna("") + " " +
+        df.get("name_last", "").fillna("")
     ).str.strip()
     df["norm"] = df["display_name"].apply(normalize_name)
     return df
@@ -100,7 +83,7 @@ def resolve_pitcher(name, season, role):
     return next(v for v in valid if v[2] == choice)
 
 # =============================
-# Bias logic — Option 1
+# Bias logic — Option 1 (FIXED)
 # =============================
 def build_bias_tables(df):
     def make(side):
@@ -113,7 +96,7 @@ def build_bias_tables(df):
 
             total_n = len(g)
 
-            # ---- pitch-type table ----
+            # ---- pitch-type summary (for boundary only) ----
             pt = (
                 g.groupby("pitch_type")
                 .agg(
@@ -127,17 +110,17 @@ def build_bias_tables(df):
             # ---- weighted average mph ----
             weighted_avg = (pt["n"] * pt["mph"]).sum() / total_n
 
-            # ---- candidate boundaries: ≥10% usage ----
+            # ---- boundary candidates: ≥10% usage ----
             candidates = pt[pt["usage"] >= 0.10].copy()
             if candidates.empty:
                 continue
 
-            # ---- snap to closest MPH ----
             candidates["dist"] = (candidates["mph"] - weighted_avg).abs()
             boundary = candidates.sort_values("dist").iloc[0]["mph"]
 
-            # ---- compute bias ----
+            # ---- IMPORTANT FIX: use ALL pitches here ----
             speeds = g["release_speed"]
+
             under_pct = (speeds < boundary).mean()
             over_pct = 1 - under_pct
 
