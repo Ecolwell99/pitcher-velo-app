@@ -20,16 +20,33 @@ st.markdown(
 )
 
 # =============================
-# CSS
+# Global CSS
 # =============================
 TABLE_CSS = """
 <style>
-.dk-table { width:100%; border-collapse:collapse; font-size:14px; }
-.dk-table th, .dk-table td { padding:10px 12px; border:1px solid rgba(255,255,255,0.08); }
-.dk-table th { background:rgba(255,255,255,0.06); }
-.dk-table tr:nth-child(even) td { background:rgba(255,255,255,0.045); }
-.dk-info { opacity:0.6; margin-left:6px; cursor:help; }
-.dk-low { opacity:0.45; }
+.dk-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.dk-table th, .dk-table td {
+  padding: 10px 12px;
+  border: 1px solid rgba(255,255,255,0.08);
+}
+.dk-table th {
+  background: rgba(255,255,255,0.06);
+}
+.dk-table tr:nth-child(even) td {
+  background: rgba(255,255,255,0.045);
+}
+.dk-info {
+  opacity: 0.6;
+  margin-left: 6px;
+  cursor: help;
+}
+.dk-low {
+  opacity: 0.45;
+}
 </style>
 """
 st.markdown(TABLE_CSS, unsafe_allow_html=True)
@@ -64,6 +81,7 @@ def resolve_pitcher(name, season, role):
     norm = normalize_name(name)
     rows = REGISTRY[REGISTRY["norm"] == norm]
     valid = []
+
     for _, r in rows.iterrows():
         try:
             df = get_pitcher_data(r["name_first"], r["name_last"], season)
@@ -82,26 +100,44 @@ def resolve_pitcher(name, season, role):
     return next(v for v in valid if v[2] == choice)
 
 # =============================
-# Bias logic (FASTBALL-ANCHORED)
+# Bias logic — Option 1
 # =============================
-FASTBALLS = {"FF","SI","FC","CT"}
-
 def build_bias_tables(df):
     def make(side):
         rows = []
+
         for count, g in df[df["stand"] == side].groupby("count"):
-            g = g.dropna(subset=["release_speed","pitch_type"])
+            g = g.dropna(subset=["release_speed", "pitch_type"])
             if g.empty:
                 continue
 
-            fb = g[g["pitch_type"].isin(FASTBALLS)]
-            if fb.empty:
+            total_n = len(g)
+
+            # ---- pitch-type table ----
+            pt = (
+                g.groupby("pitch_type")
+                .agg(
+                    n=("pitch_type","size"),
+                    mph=("release_speed","mean")
+                )
+                .reset_index()
+            )
+            pt["usage"] = pt["n"] / total_n
+
+            # ---- weighted average mph ----
+            weighted_avg = (pt["n"] * pt["mph"]).sum() / total_n
+
+            # ---- candidate boundaries: ≥10% usage ----
+            candidates = pt[pt["usage"] >= 0.10].copy()
+            if candidates.empty:
                 continue
 
-            boundary = fb["release_speed"].mean()
-            speeds = g["release_speed"]
-            n = len(speeds)
+            # ---- snap to closest MPH ----
+            candidates["dist"] = (candidates["mph"] - weighted_avg).abs()
+            boundary = candidates.sort_values("dist").iloc[0]["mph"]
 
+            # ---- compute bias ----
+            speeds = g["release_speed"]
             under_pct = (speeds < boundary).mean()
             over_pct = 1 - under_pct
 
@@ -114,20 +150,21 @@ def build_bias_tables(df):
 
             bias = f"{round(pct*100,1)}% {label} {boundary:.1f}"
 
-            tip = None
+            # ---- sample context ----
             cls = ""
-            if n < 10:
+            tip = None
+            if total_n < 10:
                 cls = "dk-low"
                 tip = "Very small sample (<10 pitches)"
-            elif n < 20:
-                tip = "Low sample size (10–19 pitches)"
+            elif total_n < 20:
+                tip = "Low sample size (10–19 pitches). Interpret directionally."
 
             if tip:
                 bias += f' <span class="dk-info" title="{tip}">ⓘ</span>'
             if cls:
                 bias = f'<span class="{cls}">{bias}</span>'
 
-            rows.append({"Count":count, "Bias":bias})
+            rows.append({"Count": count, "Bias": bias})
 
         out = pd.DataFrame(rows)
         if out.empty:
@@ -165,20 +202,20 @@ def split(df):
 
 tabs = st.tabs(["All","Early (1–2)","Middle (3–4)","Late (5+)"])
 
-for tab,key in zip(tabs,split(away_df).keys()):
+for tab,key in zip(tabs, split(away_df).keys()):
     with tab:
         st.markdown(f"## {away_name}")
         lhb,rhb = build_bias_tables(split(away_df)[key])
         st.markdown("**vs LHB**")
-        st.markdown(lhb.to_html(index=False,classes="dk-table",escape=False),unsafe_allow_html=True)
+        st.markdown(lhb.to_html(index=False, classes="dk-table", escape=False), unsafe_allow_html=True)
         st.markdown("**vs RHB**")
-        st.markdown(rhb.to_html(index=False,classes="dk-table",escape=False),unsafe_allow_html=True)
+        st.markdown(rhb.to_html(index=False, classes="dk-table", escape=False), unsafe_allow_html=True)
 
         st.divider()
 
         st.markdown(f"## {home_name}")
         lhb,rhb = build_bias_tables(split(home_df)[key])
         st.markdown("**vs LHB**")
-        st.markdown(lhb.to_html(index=False,classes="dk-table",escape=False),unsafe_allow_html=True)
+        st.markdown(lhb.to_html(index=False, classes="dk-table", escape=False), unsafe_allow_html=True)
         st.markdown("**vs RHB**")
-        st.markdown(rhb.to_html(index=False,classes="dk-table",escape=False),unsafe_allow_html=True)
+        st.markdown(rhb.to_html(index=False, classes="dk-table", escape=False), unsafe_allow_html=True)
