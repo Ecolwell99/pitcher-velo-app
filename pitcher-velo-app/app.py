@@ -83,9 +83,13 @@ def resolve_pitcher(name, season, role):
     return next(v for v in valid if v[2] == choice)
 
 # =============================
-# Bias logic — Option 1 (FIXED)
+# Bias logic — Regime-based (FINAL)
 # =============================
 def build_bias_tables(df):
+
+    MIN_SIDE_USAGE = 0.15     # both sides must matter
+    MIN_BOUNDARY_USAGE = 0.08 # boundary pitch must not be fringe
+
     def make(side):
         rows = []
 
@@ -96,44 +100,68 @@ def build_bias_tables(df):
 
             total_n = len(g)
 
-            # ---- pitch-type summary (for boundary only) ----
+            # ---- pitch-type table ----
             pt = (
                 g.groupby("pitch_type")
                 .agg(
-                    n=("pitch_type","size"),
-                    mph=("release_speed","mean")
+                    n=("pitch_type", "size"),
+                    mph=("release_speed", "mean")
                 )
                 .reset_index()
             )
             pt["usage"] = pt["n"] / total_n
 
-            # ---- weighted average mph ----
-            weighted_avg = (pt["n"] * pt["mph"]).sum() / total_n
+            # ---- velocity ladder (hard → soft) ----
+            pt = pt.sort_values("mph", ascending=False).reset_index(drop=True)
 
-            # ---- boundary candidates: ≥10% usage ----
-            candidates = pt[pt["usage"] >= 0.10].copy()
-            if candidates.empty:
-                continue
+            splits = []
 
-            candidates["dist"] = (candidates["mph"] - weighted_avg).abs()
-            boundary = candidates.sort_values("dist").iloc[0]["mph"]
+            # ---- evaluate adjacent regime splits ----
+            for i in range(len(pt) - 1):
+                hard = pt.iloc[: i + 1]
+                soft = pt.iloc[i + 1 :]
 
-            # ---- IMPORTANT FIX: use ALL pitches here ----
+                hard_usage = hard["usage"].sum()
+                soft_usage = soft["usage"].sum()
+
+                boundary_pitch = pt.iloc[i]
+                gap = pt.iloc[i]["mph"] - pt.iloc[i + 1]["mph"]
+
+                if (
+                    hard_usage >= MIN_SIDE_USAGE
+                    and soft_usage >= MIN_SIDE_USAGE
+                    and boundary_pitch["usage"] >= MIN_BOUNDARY_USAGE
+                ):
+                    score = gap * min(hard_usage, soft_usage)
+                    splits.append({
+                        "boundary_mph": boundary_pitch["mph"],
+                        "score": score
+                    })
+
+            # ---- choose boundary ----
+            if splits:
+                boundary = max(splits, key=lambda x: x["score"])["boundary_mph"]
+            else:
+                # ---- fallback: usage-weighted median pitch ----
+                pt["cum_usage"] = pt["usage"].cumsum()
+                boundary = pt.loc[pt["cum_usage"] >= 0.5].iloc[0]["mph"]
+
+            # ---- compute bias using ALL pitches ----
             speeds = g["release_speed"]
 
-            under_pct = (speeds < boundary).mean()
-            over_pct = 1 - under_pct
+            over_pct = (speeds >= boundary).mean()
+            under_pct = 1 - over_pct
 
-            if under_pct >= over_pct:
-                pct = under_pct
-                label = "Under"
-            else:
+            if over_pct >= under_pct:
                 pct = over_pct
                 label = "Over"
+            else:
+                pct = under_pct
+                label = "Under"
 
             bias = f"{round(pct*100,1)}% {label} {boundary:.1f}"
 
-            # ---- sample context ----
+            # ---- sample size context ----
             cls = ""
             tip = None
             if total_n < 10:
@@ -153,7 +181,9 @@ def build_bias_tables(df):
         if out.empty:
             return out
 
-        out["s"] = out["Count"].apply(lambda x: int(x.split("-")[0])*10 + int(x.split("-")[1]))
+        out["s"] = out["Count"].apply(
+            lambda x: int(x.split("-")[0]) * 10 + int(x.split("-")[1])
+        )
         return out.sort_values("s").drop(columns="s").reset_index(drop=True)
 
     return make("L"), make("R")
@@ -161,34 +191,37 @@ def build_bias_tables(df):
 # =============================
 # Controls
 # =============================
-c1,c2,c3 = st.columns([3,3,2])
-with c1: away = st.text_input("Away Pitcher (First Last)")
-with c2: home = st.text_input("Home Pitcher (First Last)")
-with c3: season = st.selectbox("Season",[2025,2026])
+c1, c2, c3 = st.columns([3, 3, 2])
+with c1:
+    away = st.text_input("Away Pitcher (First Last)")
+with c2:
+    home = st.text_input("Home Pitcher (First Last)")
+with c3:
+    season = st.selectbox("Season", [2025, 2026])
 
 if not st.button("Run Matchup", use_container_width=True):
     st.stop()
 
-away_f,away_l,away_name = resolve_pitcher(away,season,"Away")
-home_f,home_l,home_name = resolve_pitcher(home,season,"Home")
+away_f, away_l, away_name = resolve_pitcher(away, season, "Away")
+home_f, home_l, home_name = resolve_pitcher(home, season, "Home")
 
-away_df = get_pitcher_data(away_f,away_l,season)
-home_df = get_pitcher_data(home_f,home_l,season)
+away_df = get_pitcher_data(away_f, away_l, season)
+home_df = get_pitcher_data(home_f, home_l, season)
 
 def split(df):
     return {
         "All": df,
-        "Early (1–2)": df[df["inning"].isin([1,2])],
-        "Middle (3–4)": df[df["inning"].isin([3,4])],
+        "Early (1–2)": df[df["inning"].isin([1, 2])],
+        "Middle (3–4)": df[df["inning"].isin([3, 4])],
         "Late (5+)": df[df["inning"] >= 5],
     }
 
-tabs = st.tabs(["All","Early (1–2)","Middle (3–4)","Late (5+)"])
+tabs = st.tabs(["All", "Early (1–2)", "Middle (3–4)", "Late (5+)"])
 
-for tab,key in zip(tabs, split(away_df).keys()):
+for tab, key in zip(tabs, split(away_df).keys()):
     with tab:
         st.markdown(f"## {away_name}")
-        lhb,rhb = build_bias_tables(split(away_df)[key])
+        lhb, rhb = build_bias_tables(split(away_df)[key])
         st.markdown("**vs LHB**")
         st.markdown(lhb.to_html(index=False, classes="dk-table", escape=False), unsafe_allow_html=True)
         st.markdown("**vs RHB**")
@@ -197,7 +230,7 @@ for tab,key in zip(tabs, split(away_df).keys()):
         st.divider()
 
         st.markdown(f"## {home_name}")
-        lhb,rhb = build_bias_tables(split(home_df)[key])
+        lhb, rhb = build_bias_tables(split(home_df)[key])
         st.markdown("**vs LHB**")
         st.markdown(lhb.to_html(index=False, classes="dk-table", escape=False), unsafe_allow_html=True)
         st.markdown("**vs RHB**")
