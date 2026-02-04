@@ -89,6 +89,7 @@ def build_bias_tables(df):
 
     MIN_SIDE_USAGE = 0.15     # both sides must matter
     MIN_BOUNDARY_USAGE = 0.08 # boundary pitch must not be fringe
+    EPS = 0.05                # tolerance so boundary MPH counts as Over
 
     def make(side):
         rows = []
@@ -149,7 +150,7 @@ def build_bias_tables(df):
             # ---- compute bias using ALL pitches ----
             speeds = g["release_speed"]
 
-            over_pct = (speeds >= boundary).mean()
+            over_pct = (speeds >= boundary - EPS).mean()
             under_pct = 1 - over_pct
 
             if over_pct >= under_pct:
