@@ -13,7 +13,7 @@ st.set_page_config(page_title="Pitcher Velocity Profiles", layout="wide")
 st.markdown(
     """
     # Pitcher Velocity Profiles
-    *Velocity behavior by count, inning, and handedness (Statcast)*
+    *Velocity behavior by count, inning, and handedness*
     """,
     unsafe_allow_html=True,
 )
@@ -26,7 +26,6 @@ TABLE_CSS = """
 .dk-table { width: 100%; border-collapse: collapse; font-size: 14px; }
 .dk-table th, .dk-table td { padding: 10px 12px; border: 1px solid rgba(255,255,255,0.08); }
 .dk-table th { background: rgba(255,255,255,0.06); }
-.dk-table tr:nth-child(even) td { background: rgba(255,255,255,0.045); }
 .dk-info { opacity: 0.6; margin-left: 6px; cursor: help; }
 .dk-low { opacity: 0.45; }
 </style>
@@ -62,8 +61,8 @@ REGISTRY = load_registry()
 def resolve_pitcher(name, season, role):
     norm = normalize_name(name)
     rows = REGISTRY[REGISTRY["norm"] == norm]
-    valid = []
 
+    valid = []
     for _, r in rows.iterrows():
         try:
             df = get_pitcher_data(r["name_first"], r["name_last"], season)
@@ -73,7 +72,7 @@ def resolve_pitcher(name, season, role):
             pass
 
     if not valid:
-        raise ValueError(f"No Statcast data for '{name}' in {season}")
+        raise ValueError(f"No Statcast data for '{name}'")
 
     if len(valid) == 1:
         return valid[0]
@@ -82,12 +81,9 @@ def resolve_pitcher(name, season, role):
     return next(v for v in valid if v[2] == choice)
 
 # =============================
-# Bias logic — FINAL (TABLE-DRIVEN)
+# Bias logic — SINGLE SOURCE OF TRUTH
 # =============================
 def build_bias_tables(df):
-
-    MIN_SIDE_USAGE = 0.15     # both sides must matter
-    MIN_BOUNDARY_USAGE = 0.08 # boundary pitch must not be fringe
 
     def make(side):
         rows = []
@@ -99,7 +95,7 @@ def build_bias_tables(df):
 
             total_n = len(g)
 
-            # ---- pitch-type table ----
+            # ----- BUILD THE ONE TRUE PITCH-TYPE TABLE -----
             pt = (
                 g.groupby("pitch_type")
                 .agg(
@@ -110,51 +106,31 @@ def build_bias_tables(df):
             )
             pt["usage"] = pt["n"] / total_n
 
-            # ---- velocity ladder (hard → soft) ----
+            # Sort hard → soft
             pt = pt.sort_values("mph", ascending=False).reset_index(drop=True)
 
-            splits = []
+            # ----- CHOOSE BOUNDARY (REGIME SEAM) -----
+            # Default: fastball edge if no better seam
+            boundary_idx = 0
 
-            # ---- find regime seam ----
+            best_score = -1
             for i in range(len(pt) - 1):
-                hard = pt.iloc[: i + 1]
-                soft = pt.iloc[i + 1 :]
+                hard_usage = pt.loc[:i, "usage"].sum()
+                soft_usage = pt.loc[i+1:, "usage"].sum()
+                gap = pt.loc[i, "mph"] - pt.loc[i+1, "mph"]
 
-                hard_usage = hard["usage"].sum()
-                soft_usage = soft["usage"].sum()
-
-                boundary_pitch = pt.iloc[i]
-                gap = pt.iloc[i]["mph"] - pt.iloc[i + 1]["mph"]
-
-                if (
-                    hard_usage >= MIN_SIDE_USAGE
-                    and soft_usage >= MIN_SIDE_USAGE
-                    and boundary_pitch["usage"] >= MIN_BOUNDARY_USAGE
-                ):
+                if hard_usage >= 0.15 and soft_usage >= 0.15:
                     score = gap * min(hard_usage, soft_usage)
-                    splits.append({
-                        "boundary_mph": boundary_pitch["mph"],
-                        "score": score,
-                        "hard_usage": hard_usage,
-                        "soft_usage": soft_usage
-                    })
+                    if score > best_score:
+                        best_score = score
+                        boundary_idx = i
 
-            # ---- choose boundary ----
-            if splits:
-                best = max(splits, key=lambda x: x["score"])
-                boundary = best["boundary_mph"]
-                over_pct = best["hard_usage"]
-                under_pct = best["soft_usage"]
-            else:
-                # ---- fallback: usage-weighted median pitch ----
-                pt["cum_usage"] = pt["usage"].cumsum()
-                idx = pt.loc[pt["cum_usage"] >= 0.5].index[0]
-                boundary = pt.loc[idx, "mph"]
+            boundary = pt.loc[boundary_idx, "mph"]
 
-                over_pct = pt.loc[:idx, "usage"].sum()
-                under_pct = pt.loc[idx + 1 :, "usage"].sum()
+            # ----- BIAS = SUM FROM THIS EXACT TABLE -----
+            over_pct = pt.loc[pt["mph"] >= boundary, "usage"].sum()
+            under_pct = pt.loc[pt["mph"] < boundary, "usage"].sum()
 
-            # ---- select favored side ----
             if over_pct >= under_pct:
                 pct = over_pct
                 label = "Over"
@@ -164,14 +140,14 @@ def build_bias_tables(df):
 
             bias = f"{round(pct*100,1)}% {label} {boundary:.1f}"
 
-            # ---- sample size context ----
+            # ----- sample context -----
             cls = ""
             tip = None
             if total_n < 10:
                 cls = "dk-low"
-                tip = "Very small sample (<10 pitches)"
+                tip = "Very small sample"
             elif total_n < 20:
-                tip = "Low sample size (10–19 pitches). Interpret directionally."
+                tip = "Low sample size"
 
             if tip:
                 bias += f' <span class="dk-info" title="{tip}">ⓘ</span>'
@@ -184,9 +160,7 @@ def build_bias_tables(df):
         if out.empty:
             return out
 
-        out["s"] = out["Count"].apply(
-            lambda x: int(x.split("-")[0]) * 10 + int(x.split("-")[1])
-        )
+        out["s"] = out["Count"].apply(lambda x: int(x.split("-")[0]) * 10 + int(x.split("-")[1]))
         return out.sort_values("s").drop(columns="s").reset_index(drop=True)
 
     return make("L"), make("R")
