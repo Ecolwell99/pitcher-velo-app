@@ -81,9 +81,11 @@ def resolve_pitcher(name, season, role):
     return next(v for v in valid if v[2] == choice)
 
 # =============================
-# Bias logic — HUMAN TABLE RULE
+# Bias logic — FINAL RULE
 # =============================
 def build_bias_tables(df):
+
+    HARD_FLOOR = 89.0  # practical lower bound for "hard" regime
 
     def make(side):
         rows = []
@@ -95,7 +97,7 @@ def build_bias_tables(df):
 
             total_n = len(g)
 
-            # ---- ONE pitch-type table (source of truth) ----
+            # ---- pitch-type table (single source of truth) ----
             pt = (
                 g.groupby("pitch_type")
                 .agg(
@@ -109,22 +111,18 @@ def build_bias_tables(df):
             # Sort hard → soft
             pt = pt.sort_values("mph", ascending=False).reset_index(drop=True)
 
-            # ---- Choose boundary like a human ----
-            # Find the biggest meaningful velocity drop
+            # ---- find highest boundary that still separates hard from soft ----
             boundary_idx = 0
-            best_gap = 0
-
-            for i in range(len(pt) - 1):
-                gap = pt.loc[i, "mph"] - pt.loc[i + 1, "mph"]
-                if gap > best_gap:
-                    best_gap = gap
+            for i in range(len(pt)):
+                if pt.loc[i, "mph"] >= HARD_FLOOR:
                     boundary_idx = i
+                else:
+                    break
 
             boundary = pt.loc[boundary_idx, "mph"]
 
-            # ---- Bias = SUM OF VISIBLE TABLE ----
             over_pct = pt.loc[pt["mph"] >= boundary, "usage"].sum()
-            under_pct = pt.loc[pt["mph"] < boundary, "usage"].sum()
+            under_pct = 1 - over_pct
 
             if over_pct >= under_pct:
                 pct = over_pct
@@ -135,7 +133,7 @@ def build_bias_tables(df):
 
             bias = f"{round(pct*100,1)}% {label} {boundary:.1f}"
 
-            # ---- sample size context ----
+            # ---- sample context ----
             cls = ""
             tip = None
             if total_n < 10:
