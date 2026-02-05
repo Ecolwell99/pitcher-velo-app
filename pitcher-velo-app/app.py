@@ -19,7 +19,7 @@ st.markdown(
 )
 
 # =============================
-# Global CSS (FINAL)
+# Global CSS
 # =============================
 TABLE_CSS = """
 <style>
@@ -27,8 +27,6 @@ TABLE_CSS = """
     width: 520px;
     border-collapse: collapse;
     font-size: 14px;
-    margin-left: 0;
-    margin-right: auto;
 }
 .dk-table th, .dk-table td {
     padding: 6px 10px;
@@ -168,7 +166,6 @@ def build_bias_table(df, side):
         pt["usage"] = pt["n"] / total_n
         pt = pt.sort_values("mph", ascending=False).reset_index(drop=True)
 
-        # highest boundary that still separates hard from soft
         boundary_idx = 0
         for i in range(len(pt)):
             if pt.loc[i, "mph"] >= HARD_FLOOR:
@@ -246,7 +243,7 @@ for tab, segment in zip(tabs, split(away_df).keys()):
                 unsafe_allow_html=True,
             )
 
-            # Pitch Mix (single, centered between header and bias tables)
+            # Pitch Mix (single)
             mix_df = build_pitch_mix(df)
             st.markdown('<div class="dk-expander">', unsafe_allow_html=True)
             with st.expander("Pitch Mix", expanded=False):
@@ -256,13 +253,17 @@ for tab, segment in zip(tabs, split(away_df).keys()):
                 )
             st.markdown('</div>', unsafe_allow_html=True)
 
-            # Bias tables
+            # Bias tables — TRUE LEFT ALIGN
             st.markdown("**vs LHB**")
-            lhb = build_bias_table(df, "L")
-            st.markdown(lhb.to_html(index=False, classes="dk-table", escape=False), unsafe_allow_html=True)
+            col_left, _ = st.columns([1, 3])
+            with col_left:
+                lhb = build_bias_table(df, "L")
+                st.markdown(lhb.to_html(index=False, classes="dk-table", escape=False), unsafe_allow_html=True)
 
             st.markdown("**vs RHB**")
-            rhb = build_bias_table(df, "R")
-            st.markdown(rhb.to_html(index=False, classes="dk-table", escape=False), unsafe_allow_html=True)
+            col_left, _ = st.columns([1, 3])
+            with col_left:
+                rhb = build_bias_table(df, "R")
+                st.markdown(rhb.to_html(index=False, classes="dk-table", escape=False), unsafe_allow_html=True)
 
             st.divider()
