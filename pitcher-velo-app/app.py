@@ -19,69 +19,73 @@ st.markdown(
 )
 
 # =============================
-# Global CSS (match "main" alignment)
+# Global CSS — MATCH MAIN VERSION
 # =============================
 TABLE_CSS = """
 <style>
-/* --- Bias table: fixed width + clean column geometry like main --- */
-.dk-table{
-    width: 560px;            /* tweak if you want tighter/looser */
-    max-width: 560px;
+.dk-table {
+    width: 520px;
+    max-width: 520px;
+    table-layout: fixed;
     border-collapse: collapse;
     font-size: 14px;
-    table-layout: fixed;     /* IMPORTANT: prevents "Bias" column drifting far right */
     margin-left: 0 !important;
     margin-right: auto !important;
 }
 
-.dk-table th, .dk-table td{
+.dk-table th, .dk-table td {
     padding: 8px 10px;
     border: 1px solid rgba(255,255,255,0.08);
     overflow: hidden;
-    text-overflow: ellipsis;
     white-space: nowrap;
+    text-overflow: ellipsis;
 }
 
-.dk-table th{
+.dk-table th {
     background: rgba(255,255,255,0.08);
     font-weight: 600;
 }
 
-.dk-table tbody tr:nth-child(even) td{
+/* Zebra striping */
+.dk-table tbody tr:nth-child(even) td {
     background: rgba(255,255,255,0.05);
 }
 
-/* Column widths to keep Bias close like main */
-.dk-table th:first-child, .dk-table td:first-child{
-    width: 120px;            /* Count column */
+/* Count column */
+.dk-table th:first-child,
+.dk-table td:first-child {
+    width: 110px;
     text-align: left;
 }
-.dk-table th:last-child, .dk-table td:last-child{
-    width: 240px;            /* Bias column */
+
+/* Bias column — NARROW (this was the bug) */
+.dk-table th:last-child,
+.dk-table td:last-child {
+    width: 160px;
     text-align: right;
     font-weight: 600;
 }
 
-/* Subtitle under pitcher name */
-.dk-subtitle{
+/* Subtitle under pitcher */
+.dk-subtitle {
     opacity: 0.6;
     margin-top: -6px;
     margin-bottom: 12px;
 }
 
-/* Expander should not be full width */
-.dk-expander{
-    width: 560px;
-    max-width: 560px;
+/* Pitch Mix expander width */
+.dk-expander {
+    width: 520px;
+    max-width: 520px;
 }
 
-/* Sample size helpers */
-.dk-info{
+.dk-info {
     opacity: 0.6;
     margin-left: 6px;
     cursor: help;
 }
-.dk-low{
+
+.dk-low {
     opacity: 0.45;
 }
 </style>
@@ -91,7 +95,7 @@ st.markdown(TABLE_CSS, unsafe_allow_html=True)
 # =============================
 # Name normalization
 # =============================
-def normalize_name(name: str) -> str:
+def normalize_name(name):
     name = unicodedata.normalize("NFKD", name)
     name = "".join(c for c in name if not unicodedata.combining(c))
     return re.sub(r"\s+", " ", name.lower()).strip()
@@ -137,7 +141,7 @@ def resolve_pitcher(name, season, role):
     return next(v for v in valid if v[2] == choice)
 
 # =============================
-# Pitch Mix (single, overall)
+# Pitch Mix (overall)
 # =============================
 def build_pitch_mix(df):
     g = df.dropna(subset=["release_speed", "pitch_type"])
@@ -147,11 +151,11 @@ def build_pitch_mix(df):
     total_n = len(g)
     pt = (
         g.groupby("pitch_type")
-         .agg(n=("pitch_type", "size"), mph=("release_speed", "mean"))
-         .reset_index()
+        .agg(n=("pitch_type", "size"), mph=("release_speed", "mean"))
+        .reset_index()
     )
     pt["usage"] = pt["n"] / total_n
-    pt = pt.sort_values("usage", ascending=False).reset_index(drop=True)
+    pt = pt.sort_values("usage", ascending=False)
 
     return pt.assign(
         usage_pct=(pt["usage"] * 100).round(1),
@@ -161,10 +165,7 @@ def build_pitch_mix(df):
     )
 
 # =============================
-# Bias logic (FINAL RULE)
-# Highest boundary that still separates hard from soft:
-# boundary = slowest pitch with mph >= HARD_FLOOR
-# Bias% = sum(usage for mph >= boundary), display favored side
+# Bias logic — FINAL RULE
 # =============================
 def build_bias_table(df, side):
     HARD_FLOOR = 89.0
@@ -179,19 +180,19 @@ def build_bias_table(df, side):
 
         pt = (
             g.groupby("pitch_type")
-             .agg(n=("pitch_type", "size"), mph=("release_speed", "mean"))
-             .reset_index()
+            .agg(n=("pitch_type", "size"), mph=("release_speed", "mean"))
+            .reset_index()
         )
         pt["usage"] = pt["n"] / total_n
         pt = pt.sort_values("mph", ascending=False).reset_index(drop=True)
 
-        # boundary = slowest pitch still in "hard" regime
         boundary_idx = 0
         for i in range(len(pt)):
             if pt.loc[i, "mph"] >= HARD_FLOOR:
                 boundary_idx = i
             else:
                 break
+
         boundary = pt.loc[boundary_idx, "mph"]
 
         over_pct = pt.loc[pt["mph"] >= boundary, "usage"].sum()
@@ -206,7 +207,6 @@ def build_bias_table(df, side):
 
         bias = f"{round(pct*100,1)}% {label} {boundary:.1f}"
 
-        # sample callouts (kept lightweight)
         if total_n < 10:
             bias = f'<span class="dk-low">{bias} <span class="dk-info" title="Very small sample">ⓘ</span></span>'
         elif total_n < 20:
@@ -263,7 +263,6 @@ for tab, segment in zip(tabs, split(away_df).keys()):
                 unsafe_allow_html=True,
             )
 
-            # One pitch mix expander (same width as table)
             mix_df = build_pitch_mix(df)
             st.markdown('<div class="dk-expander">', unsafe_allow_html=True)
             with st.expander("Pitch Mix", expanded=False):
@@ -273,7 +272,6 @@ for tab, segment in zip(tabs, split(away_df).keys()):
                 )
             st.markdown('</div>', unsafe_allow_html=True)
 
-            # Stack like main (NOT side-by-side) to keep Bias column clean
             st.markdown("**vs LHB**")
             lhb = build_bias_table(df, "L")
             st.markdown(lhb.to_html(index=False, classes="dk-table", escape=False), unsafe_allow_html=True)
