@@ -62,7 +62,7 @@ TABLE_CSS = """
 .dk-table th:last-child,
 .dk-table td:last-child {
     width: 160px;
-    text-align: right;
+    text-align: left;
     font-weight: 600;
 }
 
@@ -281,3 +281,4 @@ for tab, segment in zip(tabs, split(away_df).keys()):
             st.markdown(rhb.to_html(index=False, classes="dk-table", escape=False), unsafe_allow_html=True)
 
             st.divider()
+
