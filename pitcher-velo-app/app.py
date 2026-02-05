@@ -81,7 +81,7 @@ def resolve_pitcher(name, season, role):
     return next(v for v in valid if v[2] == choice)
 
 # =============================
-# Bias logic — SINGLE SOURCE OF TRUTH
+# Bias logic — HUMAN TABLE RULE
 # =============================
 def build_bias_tables(df):
 
@@ -95,7 +95,7 @@ def build_bias_tables(df):
 
             total_n = len(g)
 
-            # ----- BUILD THE ONE TRUE PITCH-TYPE TABLE -----
+            # ---- ONE pitch-type table (source of truth) ----
             pt = (
                 g.groupby("pitch_type")
                 .agg(
@@ -109,25 +109,20 @@ def build_bias_tables(df):
             # Sort hard → soft
             pt = pt.sort_values("mph", ascending=False).reset_index(drop=True)
 
-            # ----- CHOOSE BOUNDARY (REGIME SEAM) -----
-            # Default: fastball edge if no better seam
+            # ---- Choose boundary like a human ----
+            # Find the biggest meaningful velocity drop
             boundary_idx = 0
+            best_gap = 0
 
-            best_score = -1
             for i in range(len(pt) - 1):
-                hard_usage = pt.loc[:i, "usage"].sum()
-                soft_usage = pt.loc[i+1:, "usage"].sum()
-                gap = pt.loc[i, "mph"] - pt.loc[i+1, "mph"]
-
-                if hard_usage >= 0.15 and soft_usage >= 0.15:
-                    score = gap * min(hard_usage, soft_usage)
-                    if score > best_score:
-                        best_score = score
-                        boundary_idx = i
+                gap = pt.loc[i, "mph"] - pt.loc[i + 1, "mph"]
+                if gap > best_gap:
+                    best_gap = gap
+                    boundary_idx = i
 
             boundary = pt.loc[boundary_idx, "mph"]
 
-            # ----- BIAS = SUM FROM THIS EXACT TABLE -----
+            # ---- Bias = SUM OF VISIBLE TABLE ----
             over_pct = pt.loc[pt["mph"] >= boundary, "usage"].sum()
             under_pct = pt.loc[pt["mph"] < boundary, "usage"].sum()
 
@@ -140,7 +135,7 @@ def build_bias_tables(df):
 
             bias = f"{round(pct*100,1)}% {label} {boundary:.1f}"
 
-            # ----- sample context -----
+            # ---- sample size context ----
             cls = ""
             tip = None
             if total_n < 10:
@@ -160,7 +155,9 @@ def build_bias_tables(df):
         if out.empty:
             return out
 
-        out["s"] = out["Count"].apply(lambda x: int(x.split("-")[0]) * 10 + int(x.split("-")[1]))
+        out["s"] = out["Count"].apply(
+            lambda x: int(x.split("-")[0]) * 10 + int(x.split("-")[1])
+        )
         return out.sort_values("s").drop(columns="s").reset_index(drop=True)
 
     return make("L"), make("R")
