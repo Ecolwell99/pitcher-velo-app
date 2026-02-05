@@ -82,7 +82,7 @@ def resolve_pitcher(name, season, role):
     return next(v for v in valid if v[2] == choice)
 
 # =============================
-# Bias logic — Regime-based (FINAL)
+# Bias logic — FINAL (TABLE-DRIVEN)
 # =============================
 def build_bias_tables(df):
 
@@ -115,7 +115,7 @@ def build_bias_tables(df):
 
             splits = []
 
-            # ---- evaluate adjacent regime splits ----
+            # ---- find regime seam ----
             for i in range(len(pt) - 1):
                 hard = pt.iloc[: i + 1]
                 soft = pt.iloc[i + 1 :]
@@ -134,24 +134,27 @@ def build_bias_tables(df):
                     score = gap * min(hard_usage, soft_usage)
                     splits.append({
                         "boundary_mph": boundary_pitch["mph"],
-                        "score": score
+                        "score": score,
+                        "hard_usage": hard_usage,
+                        "soft_usage": soft_usage
                     })
 
             # ---- choose boundary ----
             if splits:
-                boundary = max(splits, key=lambda x: x["score"])["boundary_mph"]
+                best = max(splits, key=lambda x: x["score"])
+                boundary = best["boundary_mph"]
+                over_pct = best["hard_usage"]
+                under_pct = best["soft_usage"]
             else:
                 # ---- fallback: usage-weighted median pitch ----
                 pt["cum_usage"] = pt["usage"].cumsum()
-                boundary = pt.loc[pt["cum_usage"] >= 0.5].iloc[0]["mph"]
+                idx = pt.loc[pt["cum_usage"] >= 0.5].index[0]
+                boundary = pt.loc[idx, "mph"]
 
-            # ---- compute bias using ALL pitches (pitch-type regime) ----
-            pt_mph_map = dict(zip(pt["pitch_type"], pt["mph"]))
-            bucket_mph = g["pitch_type"].map(pt_mph_map)
+                over_pct = pt.loc[:idx, "usage"].sum()
+                under_pct = pt.loc[idx + 1 :, "usage"].sum()
 
-            over_pct = (bucket_mph >= boundary).mean()
-            under_pct = 1 - over_pct
-
+            # ---- select favored side ----
             if over_pct >= under_pct:
                 pct = over_pct
                 label = "Over"
