@@ -19,7 +19,7 @@ st.markdown(
 )
 
 # =============================
-# Global CSS (tight, trader-style tables)
+# Global CSS (FINAL)
 # =============================
 TABLE_CSS = """
 <style>
@@ -27,6 +27,8 @@ TABLE_CSS = """
     width: 520px;
     border-collapse: collapse;
     font-size: 14px;
+    margin-left: 0;
+    margin-right: auto;
 }
 .dk-table th, .dk-table td {
     padding: 6px 10px;
@@ -59,8 +61,8 @@ TABLE_CSS = """
     margin-top: -6px;
     margin-bottom: 12px;
 }
-.dk-section {
-    margin-bottom: 22px;
+.dk-expander {
+    max-width: 520px;
 }
 </style>
 """
@@ -115,9 +117,9 @@ def resolve_pitcher(name, season, role):
     return next(v for v in valid if v[2] == choice)
 
 # =============================
-# Pitch Mix (single, overall for pitcher section)
+# Pitch Mix (single, overall)
 # =============================
-def build_pitch_mix_overall(df):
+def build_pitch_mix(df):
     g = df.dropna(subset=["release_speed", "pitch_type"])
     if g.empty:
         return pd.DataFrame(columns=["Pitch", "%", "MPH"])
@@ -132,23 +134,22 @@ def build_pitch_mix_overall(df):
         .reset_index()
     )
     pt["usage"] = pt["n"] / total_n
-    pt = pt.sort_values("usage", ascending=False).reset_index(drop=True)
+    pt = pt.sort_values("usage", ascending=False)
 
-    out = pt.assign(
+    return pt.assign(
         usage_pct=(pt["usage"] * 100).round(1),
         mph=pt["mph"].round(1)
     )[["pitch_type", "usage_pct", "mph"]].rename(
         columns={"pitch_type": "Pitch", "usage_pct": "%", "mph": "MPH"}
     )
-    return out
 
 # =============================
-# Bias logic (per handedness)
+# Bias logic (FINAL RULE)
 # =============================
 def build_bias_table(df, side):
     HARD_FLOOR = 89.0
-
     rows = []
+
     for count, g in df[df["stand"] == side].groupby("count"):
         g = g.dropna(subset=["release_speed", "pitch_type"])
         if g.empty:
@@ -167,7 +168,7 @@ def build_bias_table(df, side):
         pt["usage"] = pt["n"] / total_n
         pt = pt.sort_values("mph", ascending=False).reset_index(drop=True)
 
-        # highest boundary that still separates hard/soft
+        # highest boundary that still separates hard from soft
         boundary_idx = 0
         for i in range(len(pt)):
             if pt.loc[i, "mph"] >= HARD_FLOOR:
@@ -189,10 +190,8 @@ def build_bias_table(df, side):
 
         bias = f"{round(pct*100,1)}% {label} {boundary:.1f}"
 
-        # small sample note (kept minimal)
         if total_n < 10:
-            bias += ' <span class="dk-info" title="Very small sample">ⓘ</span>'
-            bias = f'<span class="dk-low">{bias}</span>'
+            bias = f'<span class="dk-low">{bias} <span class="dk-info" title="Very small sample">ⓘ</span></span>'
         elif total_n < 20:
             bias += ' <span class="dk-info" title="Low sample size">ⓘ</span>'
 
@@ -247,15 +246,17 @@ for tab, segment in zip(tabs, split(away_df).keys()):
                 unsafe_allow_html=True,
             )
 
-            # ✅ ONE pitch mix expander per pitcher section (lives here)
-            mix_df = build_pitch_mix_overall(df)
-            with st.expander("Pitch Mix (click to expand)", expanded=False):
+            # Pitch Mix (single, centered between header and bias tables)
+            mix_df = build_pitch_mix(df)
+            st.markdown('<div class="dk-expander">', unsafe_allow_html=True)
+            with st.expander("Pitch Mix", expanded=False):
                 st.markdown(
                     mix_df.to_html(index=False, classes="dk-table", escape=False),
                     unsafe_allow_html=True,
                 )
+            st.markdown('</div>', unsafe_allow_html=True)
 
-            # Bias tables (below expander)
+            # Bias tables
             st.markdown("**vs LHB**")
             lhb = build_bias_table(df, "L")
             st.markdown(lhb.to_html(index=False, classes="dk-table", escape=False), unsafe_allow_html=True)
