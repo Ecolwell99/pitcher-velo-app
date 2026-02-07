@@ -144,7 +144,7 @@ def build_pitch_mix(df):
     return out.sort_values("%", ascending=False).reset_index(drop=True)
 
 # =============================
-# Count Max Delta logic
+# Count Max Delta logic (now shows absolute MPH + delta)
 # =============================
 def build_count_delta_table(df, side, baseline_v):
     rows = []
@@ -154,12 +154,14 @@ def build_count_delta_table(df, side, baseline_v):
         if g.empty:
             continue
 
-        mean_v = g["release_speed"].mean()
+        mean_v = round(g["release_speed"].mean(), 1)
         delta = round(mean_v - baseline_v, 1)
         total_n = len(g)
 
-        label = f"{delta:+.1f} mph"
+        # Trader-friendly: show absolute MPH + delta
+        label = f"{mean_v:.1f} ({delta:+.1f})"
 
+        # Direction markers preserved
         if delta >= 1.2:
             label += " 🔥"
         elif delta <= -1.1:
@@ -169,12 +171,13 @@ def build_count_delta_table(df, side, baseline_v):
         elif delta <= -0.5:
             label += " ↓"
 
+        # Sample-size indicators preserved
         if total_n < 10:
             label = f'<span class="dk-low">{label} <span class="dk-info" title="Very small sample">ⓘ</span></span>'
         elif total_n < 20:
             label += ' <span class="dk-info" title="Low sample size">ⓘ</span>'
 
-        rows.append({"Count": count, "Δ Velo": label})
+        rows.append({"Count": count, "MPH (Δ)": label})
 
     out = pd.DataFrame(rows)
     if out.empty:
@@ -263,3 +266,4 @@ for tab, segment in zip(tabs, split(away_df).keys()):
             )
 
             st.divider()
+
