@@ -19,7 +19,7 @@ st.markdown(
 )
 
 # =============================
-# Global CSS (UNCHANGED UI)
+# Global CSS (keep UI stable)
 # =============================
 TABLE_CSS = """
 <style>
@@ -50,7 +50,7 @@ TABLE_CSS = """
 }
 .dk-table th:last-child,
 .dk-table td:last-child {
-    width: 160px;
+    width: 200px;
     text-align: left;   /* Bias text LEFT aligned */
     font-weight: 600;
 }
@@ -145,22 +145,22 @@ def build_pitch_mix(df):
     return out
 
 # =============================
-# Bias logic — FASTBALL ANCHORED (ONLY LOGIC)
+# Bias logic — FASTEST AVG + NEAR-MAX BAND
 # =============================
 def build_bias_table(df, side):
     """
-    FINAL BIAS RULE (FASTBALL-ANCHORED):
+    BIAS DEFINITION:
 
-    1. Identify the PRIMARY FASTBALL in this slice:
-       - Prefer FF, else SI, else FC
-       - Choose the one with highest usage
-    2. Anchor MPH = that pitch's displayed average MPH (rounded)
-    3. Over% = sum of pitch-type usage where MPH >= anchor
-    4. Under% = remainder
-    5. Display favored side
+    1. Vmax = fastest average pitch-type MPH in this slice.
+    2. Vnear = Vmax - BAND_MPH.
+    3. Over% = sum usage where avg MPH >= Vnear.
+    4. Under% = remainder.
+    5. Display favored side.
+
+    Interprets Bias as "top-gear frequency".
     """
 
-    FASTBALL_ORDER = ["FF", "SI", "FC"]
+    BAND_MPH = 1.0  # <-- TUNE THIS (e.g. 1.0 or 1.5)
     rows = []
 
     for count, g in df[df["stand"] == side].groupby("count"):
@@ -176,27 +176,15 @@ def build_bias_table(df, side):
             .reset_index()
         )
         pt["usage"] = pt["n"] / total_n
+
+        # Display truth
         pt["MPH"] = pt["mph"].round(1)
 
-        # --- identify primary fastball ---
-        fb_candidates = pt[pt["pitch_type"].isin(FASTBALL_ORDER)].copy()
+        # Fastest average speed
+        Vmax = pt["MPH"].max()
+        Vnear = round(Vmax - BAND_MPH, 1)
 
-        if fb_candidates.empty:
-            # fallback: most-used pitch
-            anchor_row = pt.sort_values("usage", ascending=False).iloc[0]
-        else:
-            fb_candidates["rank"] = fb_candidates["pitch_type"].apply(
-                lambda x: FASTBALL_ORDER.index(x)
-            )
-            anchor_row = (
-                fb_candidates
-                .sort_values(["rank", "usage"], ascending=[True, False])
-                .iloc[0]
-            )
-
-        anchor_mph = anchor_row["MPH"]
-
-        over_pct = pt.loc[pt["MPH"] >= anchor_mph, "usage"].sum()
+        over_pct = pt.loc[pt["MPH"] >= Vnear, "usage"].sum()
         under_pct = 1 - over_pct
 
         if over_pct >= under_pct:
@@ -206,7 +194,7 @@ def build_bias_table(df, side):
             pct = under_pct
             label = "Under"
 
-        bias = f"{round(pct*100,1)}% {label} {anchor_mph:.1f}"
+        bias = f"{round(pct*100,1)}% {label} {Vnear:.1f}"
 
         if total_n < 10:
             bias = f'<span class="dk-low">{bias} <span class="dk-info" title="Very small sample">ⓘ</span></span>'
@@ -266,7 +254,7 @@ for tab, segment in zip(tabs, split(away_df).keys()):
                 unsafe_allow_html=True,
             )
 
-            # Pitch Mix expander (unchanged UI)
+            # Pitch Mix expander (unchanged)
             mix_df = build_pitch_mix(df)
             st.markdown('<div class="dk-expander">', unsafe_allow_html=True)
             with st.expander("Pitch Mix", expanded=False):
