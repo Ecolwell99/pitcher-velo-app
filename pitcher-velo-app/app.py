@@ -114,7 +114,7 @@ def resolve_pitcher(name, season, role):
             pass
 
     if not valid:
-        raise ValueError(f"No Statcast data for '{name}'")
+        raise ValueError
 
     if len(valid) == 1:
         return valid[0]
@@ -186,36 +186,6 @@ def build_count_delta_table(df, side, baseline_v):
     return out.sort_values("s").drop(columns="s").reset_index(drop=True)
 
 # =============================
-# Trader Signal
-# =============================
-def build_trader_signal(df, side, baseline_v):
-    LEVERAGE_COUNTS = {"0-2", "1-2", "2-2", "3-2"}
-
-    g = df[
-        (df["stand"] == side) &
-        (df["count"].isin(LEVERAGE_COUNTS))
-    ].dropna(subset=["release_speed"])
-
-    if len(g) < 15:
-        return "TRADER SIGNAL: — Insufficient leverage sample"
-
-    mean_v = g["release_speed"].mean()
-    delta = round(mean_v - baseline_v, 1)
-
-    if delta >= 1.2:
-        label = f"🔥 PUSH (+{delta} mph in leverage counts)"
-    elif delta >= 0.5:
-        label = f"↑ LEAN OVER (+{delta} mph)"
-    elif delta <= -1.1:
-        label = f"❄️ PULL ({delta} mph in leverage counts)"
-    elif delta <= -0.5:
-        label = f"↓ LEAN UNDER ({delta} mph)"
-    else:
-        label = f"• HOLD ({delta:+.1f} mph)"
-
-    return f"**TRADER SIGNAL:** {label}"
-
-# =============================
 # Controls
 # =============================
 c1, c2, c3 = st.columns([3, 3, 2])
@@ -269,9 +239,6 @@ for tab, segment in zip(tabs, split(away_df).keys()):
 
             baseline_v = df["release_speed"].dropna().mean()
 
-            st.markdown(build_trader_signal(df, "L", baseline_v))
-            st.markdown(build_trader_signal(df, "R", baseline_v))
-
             mix_df = build_pitch_mix(df)
             st.markdown('<div class="dk-expander">', unsafe_allow_html=True)
             with st.expander("Pitch Mix", expanded=False):
@@ -296,4 +263,3 @@ for tab, segment in zip(tabs, split(away_df).keys()):
             )
 
             st.divider()
-
