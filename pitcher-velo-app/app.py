@@ -19,7 +19,7 @@ st.markdown(
 )
 
 # =============================
-# Global CSS (keep UI stable)
+# Global CSS (unchanged UI)
 # =============================
 TABLE_CSS = """
 <style>
@@ -51,7 +51,7 @@ TABLE_CSS = """
 .dk-table th:last-child,
 .dk-table td:last-child {
     width: 200px;
-    text-align: left;   /* Bias text LEFT aligned */
+    text-align: left;
     font-weight: 600;
 }
 .dk-subtitle {
@@ -123,7 +123,7 @@ def resolve_pitcher(name, season, role):
     return next(v for v in valid if v[2] == choice)
 
 # =============================
-# Pitch Mix (overall display)
+# Pitch Mix (overall)
 # =============================
 def build_pitch_mix(df):
     g = df.dropna(subset=["release_speed", "pitch_type"])
@@ -145,23 +145,38 @@ def build_pitch_mix(df):
     return out
 
 # =============================
-# Bias logic — FASTEST AVG + NEAR-MAX BAND
+# Compute fixed Vmax for pitcher + segment
 # =============================
-def build_bias_table(df, side):
+def compute_pitcher_vmax(df):
+    g = df.dropna(subset=["release_speed", "pitch_type"])
+    if g.empty:
+        return None
+
+    pt = (
+        g.groupby("pitch_type")
+        .agg(mph=("release_speed", "mean"))
+        .reset_index()
+    )
+    return round(pt["mph"].max(), 1)
+
+# =============================
+# Bias logic — FIXED PITCHER MAX
+# =============================
+def build_bias_table(df, side, vmax):
     """
-    BIAS DEFINITION:
-
-    1. Vmax = fastest average pitch-type MPH in this slice.
-    2. Vnear = Vmax - BAND_MPH.
-    3. Over% = sum usage where avg MPH >= Vnear.
-    4. Under% = remainder.
-    5. Display favored side.
-
-    Interprets Bias as "top-gear frequency".
+    FIXED-ANCHOR BIAS:
+    - Anchor is fixed Vmax for the pitcher+segment
+    - Near-max band = Vmax - BAND_MPH
+    - MPH displayed is identical across all counts
     """
 
-    BAND_MPH = 1.0  # <-- TUNE THIS (e.g. 1.0 or 1.5)
+    BAND_MPH = 1.0
     rows = []
+
+    if vmax is None:
+        return pd.DataFrame()
+
+    vnear = round(vmax - BAND_MPH, 1)
 
     for count, g in df[df["stand"] == side].groupby("count"):
         g = g.dropna(subset=["release_speed", "pitch_type"])
@@ -176,15 +191,9 @@ def build_bias_table(df, side):
             .reset_index()
         )
         pt["usage"] = pt["n"] / total_n
-
-        # Display truth
         pt["MPH"] = pt["mph"].round(1)
 
-        # Fastest average speed
-        Vmax = pt["MPH"].max()
-        Vnear = round(Vmax - BAND_MPH, 1)
-
-        over_pct = pt.loc[pt["MPH"] >= Vnear, "usage"].sum()
+        over_pct = pt.loc[pt["MPH"] >= vnear, "usage"].sum()
         under_pct = 1 - over_pct
 
         if over_pct >= under_pct:
@@ -194,7 +203,7 @@ def build_bias_table(df, side):
             pct = under_pct
             label = "Under"
 
-        bias = f"{round(pct*100,1)}% {label} {Vnear:.1f}"
+        bias = f"{round(pct*100,1)}% {label} {vnear:.1f}"
 
         if total_n < 10:
             bias = f'<span class="dk-low">{bias} <span class="dk-info" title="Very small sample">ⓘ</span></span>'
@@ -254,7 +263,9 @@ for tab, segment in zip(tabs, split(away_df).keys()):
                 unsafe_allow_html=True,
             )
 
-            # Pitch Mix expander (unchanged)
+            # Fixed Vmax for this pitcher + segment
+            vmax = compute_pitcher_vmax(df)
+
             mix_df = build_pitch_mix(df)
             st.markdown('<div class="dk-expander">', unsafe_allow_html=True)
             with st.expander("Pitch Mix", expanded=False):
@@ -264,13 +275,12 @@ for tab, segment in zip(tabs, split(away_df).keys()):
                 )
             st.markdown('</div>', unsafe_allow_html=True)
 
-            # Bias tables
             st.markdown("**vs LHB**")
-            lhb = build_bias_table(df, "L")
+            lhb = build_bias_table(df, "L", vmax)
             st.markdown(lhb.to_html(index=False, classes="dk-table", escape=False), unsafe_allow_html=True)
 
             st.markdown("**vs RHB**")
-            rhb = build_bias_table(df, "R")
+            rhb = build_bias_table(df, "R", vmax)
             st.markdown(rhb.to_html(index=False, classes="dk-table", escape=False), unsafe_allow_html=True)
 
             st.divider()
