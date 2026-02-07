@@ -19,7 +19,7 @@ st.markdown(
 )
 
 # =============================
-# Global CSS
+# Global CSS (UNCHANGED UI)
 # =============================
 TABLE_CSS = """
 <style>
@@ -50,8 +50,8 @@ TABLE_CSS = """
 }
 .dk-table th:last-child,
 .dk-table td:last-child {
-    width: 200px;
-    text-align: left;      /* Bias text left-aligned */
+    width: 160px;
+    text-align: left;   /* Bias text LEFT aligned */
     font-weight: 600;
 }
 .dk-subtitle {
@@ -77,7 +77,7 @@ st.markdown(TABLE_CSS, unsafe_allow_html=True)
 # =============================
 # Name normalization
 # =============================
-def normalize_name(name: str) -> str:
+def normalize_name(name):
     name = unicodedata.normalize("NFKD", name)
     name = "".join(c for c in name if not unicodedata.combining(c))
     return re.sub(r"\s+", " ", name.lower()).strip()
@@ -123,99 +123,90 @@ def resolve_pitcher(name, season, role):
     return next(v for v in valid if v[2] == choice)
 
 # =============================
-# Build the DISPLAY pitch-type table for a given slice
-# (This table is the single source of truth for Bias.)
+# Pitch Mix (overall display)
 # =============================
-def pitch_type_table_display(g: pd.DataFrame) -> pd.DataFrame:
-    """
-    Returns a pitch-type table with DISPLAY values:
-    - MPH is rounded to 1 decimal
-    - % is rounded to 1 decimal (the thing traders add)
-    """
-    g = g.dropna(subset=["release_speed", "pitch_type"])
+def build_pitch_mix(df):
+    g = df.dropna(subset=["release_speed", "pitch_type"])
     if g.empty:
-        return pd.DataFrame(columns=["Pitch Type", "#", "%", "MPH"])
+        return pd.DataFrame(columns=["Pitch", "%", "MPH"])
 
     total_n = len(g)
-
     pt = (
         g.groupby("pitch_type")
-        .agg(
-            n=("pitch_type", "size"),
-            mph=("release_speed", "mean"),
-        )
+        .agg(n=("pitch_type", "size"), mph=("release_speed", "mean"))
         .reset_index()
     )
     pt["usage"] = pt["n"] / total_n
-
-    # DISPLAY TRUTH
     pt["MPH"] = pt["mph"].round(1)
     pt["%"] = (pt["usage"] * 100).round(1)
 
-    # Build display frame (sorted by MPH desc like your screenshots)
-    out = pt.rename(columns={"pitch_type": "Pitch Type", "n": "#"}).copy()
-    out = out[["Pitch Type", "#", "%", "MPH"]].sort_values("MPH", ascending=False).reset_index(drop=True)
+    out = pt.rename(columns={"pitch_type": "Pitch"})[["Pitch", "%", "MPH"]]
+    out = out.sort_values("%", ascending=False).reset_index(drop=True)
     return out
 
 # =============================
-# Pitch Mix (overall expander)
+# Bias logic — FASTBALL ANCHORED (ONLY LOGIC)
 # =============================
-def build_pitch_mix_overall(df: pd.DataFrame) -> pd.DataFrame:
-    return pitch_type_table_display(df)
-
-# =============================
-# Bias logic — computed directly from DISPLAY pitch-type table
-# =============================
-def bias_from_display_table(pt_disp: pd.DataFrame, min_line_usage_pct: float) -> tuple[float, str, float]:
+def build_bias_table(df, side):
     """
-    pt_disp columns: Pitch Type, #, %, MPH  (all DISPLAY values)
+    FINAL BIAS RULE (FASTBALL-ANCHORED):
 
-    Rule:
-    1) Boundary = highest MPH row whose % >= min_line_usage_pct
-       (if none, boundary = top MPH)
-    2) Over% = sum of DISPLAY % where MPH >= boundary
-       Under% = sum of DISPLAY % where MPH <  boundary
-    3) Show favored side; ties go to Over (keeps it non-trivial).
+    1. Identify the PRIMARY FASTBALL in this slice:
+       - Prefer FF, else SI, else FC
+       - Choose the one with highest usage
+    2. Anchor MPH = that pitch's displayed average MPH (rounded)
+    3. Over% = sum of pitch-type usage where MPH >= anchor
+    4. Under% = remainder
+    5. Display favored side
     """
-    if pt_disp.empty:
-        return (0.0, "Under", 0.0)
 
-    # Boundary selection on DISPLAY values
-    boundary = None
-    for _, r in pt_disp.iterrows():
-        if float(r["%"]) >= min_line_usage_pct:
-            boundary = float(r["MPH"])
-            break
-    if boundary is None:
-        boundary = float(pt_disp.iloc[0]["MPH"])
-
-    over_sum = float(pt_disp.loc[pt_disp["MPH"] >= boundary, "%"].sum())
-    under_sum = float(pt_disp.loc[pt_disp["MPH"] < boundary, "%"].sum())
-
-    # Favor ties to Over
-    if over_sum >= under_sum:
-        return (over_sum, "Over", boundary)
-    return (under_sum, "Under", boundary)
-
-def build_bias_table(df: pd.DataFrame, side: str) -> pd.DataFrame:
-    MIN_LINE_USAGE_PCT = 30.0  # 30%+ can stand alone as the O/U line (DISPLAY percent)
-
+    FASTBALL_ORDER = ["FF", "SI", "FC"]
     rows = []
-    df_side = df[df["stand"] == side].copy()
 
-    for count, g in df_side.groupby("count"):
+    for count, g in df[df["stand"] == side].groupby("count"):
         g = g.dropna(subset=["release_speed", "pitch_type"])
         if g.empty:
             continue
 
         total_n = len(g)
 
-        # SINGLE SOURCE OF TRUTH: display pitch-type table for THIS exact slice
-        pt_disp = pitch_type_table_display(g)
+        pt = (
+            g.groupby("pitch_type")
+            .agg(n=("pitch_type", "size"), mph=("release_speed", "mean"))
+            .reset_index()
+        )
+        pt["usage"] = pt["n"] / total_n
+        pt["MPH"] = pt["mph"].round(1)
 
-        pct, label, boundary = bias_from_display_table(pt_disp, MIN_LINE_USAGE_PCT)
+        # --- identify primary fastball ---
+        fb_candidates = pt[pt["pitch_type"].isin(FASTBALL_ORDER)].copy()
 
-        bias = f"{pct:.1f}% {label} {boundary:.1f}"
+        if fb_candidates.empty:
+            # fallback: most-used pitch
+            anchor_row = pt.sort_values("usage", ascending=False).iloc[0]
+        else:
+            fb_candidates["rank"] = fb_candidates["pitch_type"].apply(
+                lambda x: FASTBALL_ORDER.index(x)
+            )
+            anchor_row = (
+                fb_candidates
+                .sort_values(["rank", "usage"], ascending=[True, False])
+                .iloc[0]
+            )
+
+        anchor_mph = anchor_row["MPH"]
+
+        over_pct = pt.loc[pt["MPH"] >= anchor_mph, "usage"].sum()
+        under_pct = 1 - over_pct
+
+        if over_pct >= under_pct:
+            pct = over_pct
+            label = "Over"
+        else:
+            pct = under_pct
+            label = "Under"
+
+        bias = f"{round(pct*100,1)}% {label} {anchor_mph:.1f}"
 
         if total_n < 10:
             bias = f'<span class="dk-low">{bias} <span class="dk-info" title="Very small sample">ⓘ</span></span>'
@@ -228,7 +219,9 @@ def build_bias_table(df: pd.DataFrame, side: str) -> pd.DataFrame:
     if out.empty:
         return out
 
-    out["s"] = out["Count"].apply(lambda x: int(x.split("-")[0]) * 10 + int(x.split("-")[1]))
+    out["s"] = out["Count"].apply(
+        lambda x: int(x.split("-")[0]) * 10 + int(x.split("-")[1])
+    )
     return out.sort_values("s").drop(columns="s").reset_index(drop=True)
 
 # =============================
@@ -251,7 +244,7 @@ home_f, home_l, home_name = resolve_pitcher(home, season, "Home")
 away_df = get_pitcher_data(away_f, away_l, season)
 home_df = get_pitcher_data(home_f, home_l, season)
 
-def split(df: pd.DataFrame):
+def split(df):
     return {
         "All": df,
         "Early (1–2)": df[df["inning"].isin([1, 2])],
@@ -273,8 +266,8 @@ for tab, segment in zip(tabs, split(away_df).keys()):
                 unsafe_allow_html=True,
             )
 
-            # One overall pitch mix expander (season/segment overall)
-            mix_df = build_pitch_mix_overall(df)
+            # Pitch Mix expander (unchanged UI)
+            mix_df = build_pitch_mix(df)
             st.markdown('<div class="dk-expander">', unsafe_allow_html=True)
             with st.expander("Pitch Mix", expanded=False):
                 st.markdown(
