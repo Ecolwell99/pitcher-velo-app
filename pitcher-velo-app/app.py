@@ -181,7 +181,7 @@ def build_bias_table(df, side, fb_anchor_mph):
     Near-max threshold = anchor - BAND_MPH
     """
 
-    BAND_MPH = 1.0
+    BAND_MPH = 1.5
     rows = []
 
     if fb_anchor_mph is None:
@@ -295,4 +295,5 @@ for tab, segment in zip(tabs, split(away_df).keys()):
             st.markdown(rhb.to_html(index=False, classes="dk-table", escape=False), unsafe_allow_html=True)
 
             st.divider()
+
 
