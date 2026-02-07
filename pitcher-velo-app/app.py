@@ -19,7 +19,7 @@ st.markdown(
 )
 
 # =============================
-# Global CSS (clean + readable)
+# Global CSS
 # =============================
 TABLE_CSS = """
 <style>
@@ -31,53 +31,42 @@ TABLE_CSS = """
     margin-left: 0;
     margin-right: auto;
 }
-
 .dk-table th, .dk-table td {
     padding: 8px 10px;
     border: 1px solid rgba(255,255,255,0.08);
     white-space: nowrap;
 }
-
 .dk-table th {
     background: rgba(255,255,255,0.08);
     font-weight: 600;
 }
-
 .dk-table tbody tr:nth-child(even) td {
     background: rgba(255,255,255,0.05);
 }
-
-/* Count column */
 .dk-table th:first-child,
 .dk-table td:first-child {
     width: 110px;
     text-align: left;
 }
-
-/* Bias column — LEFT ALIGNED */
 .dk-table th:last-child,
 .dk-table td:last-child {
     width: 160px;
     text-align: left;
     font-weight: 600;
 }
-
 .dk-subtitle {
     opacity: 0.6;
     margin-top: -6px;
     margin-bottom: 12px;
 }
-
 .dk-expander {
     width: 520px;
 }
-
 .dk-info {
     opacity: 0.6;
     margin-left: 6px;
     cursor: help;
 }
-
 .dk-low {
     opacity: 0.45;
 }
@@ -94,7 +83,7 @@ def normalize_name(name):
     return re.sub(r"\s+", " ", name.lower()).strip()
 
 # =============================
-# Registry (NO caching of bias logic)
+# Registry
 # =============================
 @st.cache_data(show_spinner=False)
 def load_registry():
@@ -134,7 +123,7 @@ def resolve_pitcher(name, season, role):
     return next(v for v in valid if v[2] == choice)
 
 # =============================
-# Pitch Mix (overall)
+# Pitch Mix (overall, display truth)
 # =============================
 def build_pitch_mix(df):
     g = df.dropna(subset=["release_speed", "pitch_type"])
@@ -144,35 +133,33 @@ def build_pitch_mix(df):
     total_n = len(g)
     pt = (
         g.groupby("pitch_type")
-        .agg(
-            n=("pitch_type", "size"),
-            mph=("release_speed", "mean")
-        )
+        .agg(n=("pitch_type", "size"), mph=("release_speed", "mean"))
         .reset_index()
     )
     pt["usage"] = pt["n"] / total_n
+    pt["mph_display"] = pt["mph"].round(1)
     pt = pt.sort_values("usage", ascending=False)
 
     return pt.assign(
-        usage_pct=(pt["usage"] * 100).round(1),
-        mph=pt["mph"].round(1)
-    )[["pitch_type", "usage_pct", "mph"]].rename(
-        columns={"pitch_type": "Pitch", "usage_pct": "%", "mph": "MPH"}
+        usage_pct=(pt["usage"] * 100).round(1)
+    )[["pitch_type", "usage_pct", "mph_display"]].rename(
+        columns={"pitch_type": "Pitch", "usage_pct": "%", "mph_display": "MPH"}
     )
 
 # =============================
-# Bias logic — ONLY RULE THAT EXISTS
+# Bias logic — FINAL, DISPLAY-TRUTH RULE
 # =============================
 def build_bias_table(df, side):
     """
-    FINAL RULE:
-    1. Boundary = highest MPH pitch whose usage >= MIN_LINE_USAGE
-    2. Over% = sum usage where MPH >= boundary
-    3. Under% = remainder
-    4. NOTHING below boundary can count as Over
+    FINAL RULE (LOCKED):
+
+    1. All MPH values are rounded to 1 decimal FIRST.
+    2. Boundary = highest displayed MPH whose usage >= MIN_LINE_USAGE.
+    3. Over% = sum usage where displayed MPH >= boundary.
+    4. Under% = remainder.
     """
 
-    MIN_LINE_USAGE = 0.30  # locked rule
+    MIN_LINE_USAGE = 0.30
     rows = []
 
     for count, g in df[df["stand"] == side].groupby("count"):
@@ -184,28 +171,27 @@ def build_bias_table(df, side):
 
         pt = (
             g.groupby("pitch_type")
-            .agg(
-                n=("pitch_type", "size"),
-                mph=("release_speed", "mean")
-            )
+            .agg(n=("pitch_type", "size"), mph=("release_speed", "mean"))
             .reset_index()
         )
         pt["usage"] = pt["n"] / total_n
-        pt = pt.sort_values("mph", ascending=False).reset_index(drop=True)
 
-        # ---- BOUNDARY SELECTION (USAGE ONLY) ----
+        # DISPLAY TRUTH
+        pt["mph_display"] = pt["mph"].round(1)
+        pt = pt.sort_values("mph_display", ascending=False).reset_index(drop=True)
+
+        # Boundary selection (usage-based, displayed MPH)
         boundary = None
         for _, row in pt.iterrows():
             if row["usage"] >= MIN_LINE_USAGE:
-                boundary = row["mph"]
+                boundary = row["mph_display"]
                 break
 
-        # Safety fallback: fastest pitch
         if boundary is None:
-            boundary = pt.iloc[0]["mph"]
+            boundary = pt.iloc[0]["mph_display"]
 
-        # ---- STRICT PERCENTAGE CALCULATION ----
-        over_pct = pt.loc[pt["mph"] >= boundary, "usage"].sum()
+        # STRICT comparison using displayed MPH
+        over_pct = pt.loc[pt["mph_display"] >= boundary, "usage"].sum()
         under_pct = 1 - over_pct
 
         if over_pct >= under_pct:
@@ -228,9 +214,7 @@ def build_bias_table(df, side):
     if out.empty:
         return out
 
-    out["s"] = out["Count"].apply(
-        lambda x: int(x.split("-")[0]) * 10 + int(x.split("-")[1])
-    )
+    out["s"] = out["Count"].apply(lambda x: int(x.split("-")[0]) * 10 + int(x.split("-")[1]))
     return out.sort_values("s").drop(columns="s").reset_index(drop=True)
 
 # =============================
@@ -293,3 +277,4 @@ for tab, segment in zip(tabs, split(away_df).keys()):
             st.markdown(rhb.to_html(index=False, classes="dk-table", escape=False), unsafe_allow_html=True)
 
             st.divider()
+
