@@ -123,32 +123,6 @@ def resolve_pitcher(name, season, role):
     return next(v for v in valid if v[2] == choice)
 
 # =============================
-# Compute season-level fastball anchor
-# =============================
-def compute_season_fastball_anchor(df):
-    """
-    Returns the season-level primary fastball average MPH (rounded to 0.1).
-
-    Priority:
-    1. FF
-    2. SI
-    3. FC
-    """
-    FASTBALL_ORDER = ["FF", "SI", "FC"]
-
-    g = df.dropna(subset=["release_speed", "pitch_type"])
-    if g.empty:
-        return None
-
-    for fb in FASTBALL_ORDER:
-        fb_df = g[g["pitch_type"] == fb]
-        if not fb_df.empty:
-            return round(fb_df["release_speed"].mean(), 1)
-
-    # Fallback: fastest pitch type overall
-    return round(g.groupby("pitch_type")["release_speed"].mean().max(), 1)
-
-# =============================
 # Pitch Mix (overall display)
 # =============================
 def build_pitch_mix(df):
@@ -167,61 +141,40 @@ def build_pitch_mix(df):
     pt["%"] = (pt["usage"] * 100).round(1)
 
     out = pt.rename(columns={"pitch_type": "Pitch"})[["Pitch", "%", "MPH"]]
-    out = out.sort_values("%", ascending=False).reset_index(drop=True)
-    return out
+    return out.sort_values("%", ascending=False).reset_index(drop=True)
 
 # =============================
-# Bias logic — FIXED SEASON FASTBALL ANCHOR + NEAR-MAX BAND
+# Count Max Delta logic
 # =============================
-def build_bias_table(df, side, fb_anchor_mph):
-    """
-    Bias = how often the pitcher operates near top gear.
-
-    Anchor: season-level primary fastball avg (fixed)
-    Near-max threshold = anchor - BAND_MPH
-    """
-
-    BAND_MPH = 1.5
+def build_count_delta_table(df, side, baseline_v):
     rows = []
 
-    if fb_anchor_mph is None:
-        return pd.DataFrame()
-
-    vnear = round(fb_anchor_mph - BAND_MPH, 1)
-
     for count, g in df[df["stand"] == side].groupby("count"):
-        g = g.dropna(subset=["release_speed", "pitch_type"])
+        g = g.dropna(subset=["release_speed"])
         if g.empty:
             continue
 
+        mean_v = g["release_speed"].mean()
+        delta = round(mean_v - baseline_v, 1)
         total_n = len(g)
 
-        pt = (
-            g.groupby("pitch_type")
-            .agg(n=("pitch_type", "size"), mph=("release_speed", "mean"))
-            .reset_index()
-        )
-        pt["usage"] = pt["n"] / total_n
-        pt["MPH"] = pt["mph"].round(1)
+        label = f"{delta:+.1f} mph"
 
-        over_pct = pt.loc[pt["MPH"] >= vnear, "usage"].sum()
-        under_pct = 1 - over_pct
-
-        if over_pct >= under_pct:
-            pct = over_pct
-            label = "Over"
-        else:
-            pct = under_pct
-            label = "Under"
-
-        bias = f"{round(pct*100,1)}% {label} {vnear:.1f}"
+        if delta >= 1.2:
+            label += " 🔥"
+        elif delta <= -1.1:
+            label += " ❄️"
+        elif delta >= 0.5:
+            label += " ↑"
+        elif delta <= -0.5:
+            label += " ↓"
 
         if total_n < 10:
-            bias = f'<span class="dk-low">{bias} <span class="dk-info" title="Very small sample">ⓘ</span></span>'
+            label = f'<span class="dk-low">{label} <span class="dk-info" title="Very small sample">ⓘ</span></span>'
         elif total_n < 20:
-            bias += ' <span class="dk-info" title="Low sample size">ⓘ</span>'
+            label += ' <span class="dk-info" title="Low sample size">ⓘ</span>'
 
-        rows.append({"Count": count, "Bias": bias})
+        rows.append({"Count": count, "Δ Velo": label})
 
     out = pd.DataFrame(rows)
     if out.empty:
@@ -274,8 +227,7 @@ for tab, segment in zip(tabs, split(away_df).keys()):
                 unsafe_allow_html=True,
             )
 
-            # Compute season-level fastball anchor ONCE
-            fb_anchor = compute_season_fastball_anchor(df)
+            baseline_v = df["release_speed"].dropna().mean()
 
             mix_df = build_pitch_mix(df)
             st.markdown('<div class="dk-expander">', unsafe_allow_html=True)
@@ -287,13 +239,17 @@ for tab, segment in zip(tabs, split(away_df).keys()):
             st.markdown('</div>', unsafe_allow_html=True)
 
             st.markdown("**vs LHB**")
-            lhb = build_bias_table(df, "L", fb_anchor)
-            st.markdown(lhb.to_html(index=False, classes="dk-table", escape=False), unsafe_allow_html=True)
+            lhb = build_count_delta_table(df, "L", baseline_v)
+            st.markdown(
+                lhb.to_html(index=False, classes="dk-table", escape=False),
+                unsafe_allow_html=True,
+            )
 
             st.markdown("**vs RHB**")
-            rhb = build_bias_table(df, "R", fb_anchor)
-            st.markdown(rhb.to_html(index=False, classes="dk-table", escape=False), unsafe_allow_html=True)
+            rhb = build_count_delta_table(df, "R", baseline_v)
+            st.markdown(
+                rhb.to_html(index=False, classes="dk-table", escape=False),
+                unsafe_allow_html=True,
+            )
 
             st.divider()
-
-
