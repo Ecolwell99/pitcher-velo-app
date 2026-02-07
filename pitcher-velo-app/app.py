@@ -19,7 +19,7 @@ st.markdown(
 )
 
 # =============================
-# Global CSS — MATCH MAIN VERSION
+# Global CSS
 # =============================
 TABLE_CSS = """
 <style>
@@ -46,7 +46,6 @@ TABLE_CSS = """
     font-weight: 600;
 }
 
-/* Zebra striping */
 .dk-table tbody tr:nth-child(even) td {
     background: rgba(255,255,255,0.05);
 }
@@ -58,7 +57,7 @@ TABLE_CSS = """
     text-align: left;
 }
 
-/* Bias column — NARROW (this was the bug) */
+/* Bias column — LEFT ALIGNED (fixed) */
 .dk-table th:last-child,
 .dk-table td:last-child {
     width: 160px;
@@ -66,14 +65,12 @@ TABLE_CSS = """
     font-weight: 600;
 }
 
-/* Subtitle under pitcher */
 .dk-subtitle {
     opacity: 0.6;
     margin-top: -6px;
     margin-bottom: 12px;
 }
 
-/* Pitch Mix expander width */
 .dk-expander {
     width: 520px;
     max-width: 520px;
@@ -165,10 +162,10 @@ def build_pitch_mix(df):
     )
 
 # =============================
-# Bias logic — FINAL RULE
+# Bias logic — UPDATED RULE
 # =============================
 def build_bias_table(df, side):
-    HARD_FLOOR = 89.0
+    MIN_LINE_USAGE = 0.30  # usage required for a pitch to stand alone as the O/U line
     rows = []
 
     for count, g in df[df["stand"] == side].groupby("count"):
@@ -186,15 +183,17 @@ def build_bias_table(df, side):
         pt["usage"] = pt["n"] / total_n
         pt = pt.sort_values("mph", ascending=False).reset_index(drop=True)
 
-        boundary_idx = 0
-        for i in range(len(pt)):
-            if pt.loc[i, "mph"] >= HARD_FLOOR:
-                boundary_idx = i
-            else:
+        # --- NEW BOUNDARY RULE ---
+        boundary = None
+        for _, row in pt.iterrows():
+            if row["usage"] >= MIN_LINE_USAGE:
+                boundary = row["mph"]
                 break
 
-        boundary = pt.loc[boundary_idx, "mph"]
+        if boundary is None:
+            boundary = pt.iloc[0]["mph"]
 
+        # --- STRICT PERCENTAGE CALCULATION ---
         over_pct = pt.loc[pt["mph"] >= boundary, "usage"].sum()
         under_pct = 1 - over_pct
 
