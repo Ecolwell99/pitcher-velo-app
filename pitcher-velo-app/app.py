@@ -19,7 +19,7 @@ st.markdown(
 )
 
 # =============================
-# Global CSS (unchanged UI)
+# Global CSS (UI preserved)
 # =============================
 TABLE_CSS = """
 <style>
@@ -123,7 +123,33 @@ def resolve_pitcher(name, season, role):
     return next(v for v in valid if v[2] == choice)
 
 # =============================
-# Pitch Mix (overall)
+# Compute season-level fastball anchor
+# =============================
+def compute_season_fastball_anchor(df):
+    """
+    Returns the season-level primary fastball average MPH (rounded to 0.1).
+
+    Priority:
+    1. FF
+    2. SI
+    3. FC
+    """
+    FASTBALL_ORDER = ["FF", "SI", "FC"]
+
+    g = df.dropna(subset=["release_speed", "pitch_type"])
+    if g.empty:
+        return None
+
+    for fb in FASTBALL_ORDER:
+        fb_df = g[g["pitch_type"] == fb]
+        if not fb_df.empty:
+            return round(fb_df["release_speed"].mean(), 1)
+
+    # Fallback: fastest pitch type overall
+    return round(g.groupby("pitch_type")["release_speed"].mean().max(), 1)
+
+# =============================
+# Pitch Mix (overall display)
 # =============================
 def build_pitch_mix(df):
     g = df.dropna(subset=["release_speed", "pitch_type"])
@@ -145,38 +171,23 @@ def build_pitch_mix(df):
     return out
 
 # =============================
-# Compute fixed Vmax for pitcher + segment
+# Bias logic — FIXED SEASON FASTBALL ANCHOR + NEAR-MAX BAND
 # =============================
-def compute_pitcher_vmax(df):
-    g = df.dropna(subset=["release_speed", "pitch_type"])
-    if g.empty:
-        return None
-
-    pt = (
-        g.groupby("pitch_type")
-        .agg(mph=("release_speed", "mean"))
-        .reset_index()
-    )
-    return round(pt["mph"].max(), 1)
-
-# =============================
-# Bias logic — FIXED PITCHER MAX
-# =============================
-def build_bias_table(df, side, vmax):
+def build_bias_table(df, side, fb_anchor_mph):
     """
-    FIXED-ANCHOR BIAS:
-    - Anchor is fixed Vmax for the pitcher+segment
-    - Near-max band = Vmax - BAND_MPH
-    - MPH displayed is identical across all counts
+    Bias = how often the pitcher operates near top gear.
+
+    Anchor: season-level primary fastball avg (fixed)
+    Near-max threshold = anchor - BAND_MPH
     """
 
     BAND_MPH = 1.0
     rows = []
 
-    if vmax is None:
+    if fb_anchor_mph is None:
         return pd.DataFrame()
 
-    vnear = round(vmax - BAND_MPH, 1)
+    vnear = round(fb_anchor_mph - BAND_MPH, 1)
 
     for count, g in df[df["stand"] == side].groupby("count"):
         g = g.dropna(subset=["release_speed", "pitch_type"])
@@ -263,8 +274,8 @@ for tab, segment in zip(tabs, split(away_df).keys()):
                 unsafe_allow_html=True,
             )
 
-            # Fixed Vmax for this pitcher + segment
-            vmax = compute_pitcher_vmax(df)
+            # Compute season-level fastball anchor ONCE
+            fb_anchor = compute_season_fastball_anchor(df)
 
             mix_df = build_pitch_mix(df)
             st.markdown('<div class="dk-expander">', unsafe_allow_html=True)
@@ -276,11 +287,11 @@ for tab, segment in zip(tabs, split(away_df).keys()):
             st.markdown('</div>', unsafe_allow_html=True)
 
             st.markdown("**vs LHB**")
-            lhb = build_bias_table(df, "L", vmax)
+            lhb = build_bias_table(df, "L", fb_anchor)
             st.markdown(lhb.to_html(index=False, classes="dk-table", escape=False), unsafe_allow_html=True)
 
             st.markdown("**vs RHB**")
-            rhb = build_bias_table(df, "R", vmax)
+            rhb = build_bias_table(df, "R", fb_anchor)
             st.markdown(rhb.to_html(index=False, classes="dk-table", escape=False), unsafe_allow_html=True)
 
             st.divider()
