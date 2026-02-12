@@ -8,64 +8,48 @@ from data import get_pitcher_data
 # =============================
 # Page setup
 # =============================
-st.set_page_config(page_title="Pitcher Velocity Profiles", layout="wide")
+st.set_page_config(page_title="Pitcher Pitch Profiles", layout="wide")
 
 st.markdown(
     """
-    # Pitcher Velocity Profiles
-    *Velocity behavior by count, inning, and handedness*
+    # Pitcher Pitch Profiles
+    *Pitch selection and velocity by count & handedness*
     """,
     unsafe_allow_html=True,
 )
 
 # =============================
-# Global CSS (UI preserved)
+# Global CSS
 # =============================
 TABLE_CSS = """
 <style>
 .dk-table {
-    width: 520px;
+    width: 620px;
     table-layout: fixed;
     border-collapse: collapse;
     font-size: 14px;
-    margin-left: 0;
-    margin-right: auto;
 }
 .dk-table th, .dk-table td {
     padding: 8px 10px;
     border: 1px solid rgba(255,255,255,0.08);
-    white-space: nowrap;
+    text-align: center;
+}
+.dk-table th:first-child,
+.dk-table td:first-child {
+    text-align: left;
+    width: 80px;
 }
 .dk-table th {
     background: rgba(255,255,255,0.08);
     font-weight: 600;
 }
 .dk-table tbody tr:nth-child(even) td {
-    background: rgba(255,255,255,0.05);
-}
-.dk-table th:first-child,
-.dk-table td:first-child {
-    width: 110px;
-    text-align: left;
-}
-.dk-table th:last-child,
-.dk-table td:last-child {
-    width: 200px;
-    text-align: left;
-    font-weight: 600;
+    background: rgba(255,255,255,0.04);
 }
 .dk-subtitle {
     opacity: 0.6;
     margin-top: -6px;
     margin-bottom: 12px;
-}
-.dk-expander {
-    width: 520px;
-}
-.dk-info {
-    opacity: 0.6;
-    margin-left: 6px;
-    cursor: help;
 }
 .dk-low {
     opacity: 0.45;
@@ -123,61 +107,78 @@ def resolve_pitcher(name, season, role):
     return next(v for v in valid if v[2] == choice)
 
 # =============================
-# Pitch Mix
+# Pitch group mapping
 # =============================
-def build_pitch_mix(df):
-    g = df.dropna(subset=["release_speed", "pitch_type"])
-    if g.empty:
-        return pd.DataFrame(columns=["Pitch", "%", "MPH"])
+FASTBALLS = {"FF", "SI", "FC"}
+BREAKING = {"SL", "CU", "KC", "SV", "ST"}
+OFFSPEED = {"CH", "FS", "FO"}
 
-    total_n = len(g)
-    pt = (
-        g.groupby("pitch_type")
-        .agg(n=("pitch_type", "size"), mph=("release_speed", "mean"))
-        .reset_index()
-    )
-    pt["usage"] = pt["n"] / total_n
-    pt["MPH"] = pt["mph"].round(1)
-    pt["%"] = (pt["usage"] * 100).round(1)
-
-    out = pt.rename(columns={"pitch_type": "Pitch"})[["Pitch", "%", "MPH"]]
-    return out.sort_values("%", ascending=False).reset_index(drop=True)
+def classify_pitch(pt):
+    if pt in FASTBALLS:
+        return "Fastball"
+    if pt in BREAKING:
+        return "Breaking"
+    if pt in OFFSPEED:
+        return "Offspeed"
+    return None
 
 # =============================
-# Count Max Delta logic (now shows absolute MPH + delta)
+# Build pitch table
 # =============================
-def build_count_delta_table(df, side, baseline_v):
+def build_pitch_table(df, side):
+
     rows = []
 
     for count, g in df[df["stand"] == side].groupby("count"):
-        g = g.dropna(subset=["release_speed"])
+        g = g.dropna(subset=["release_speed", "pitch_type"])
         if g.empty:
             continue
 
-        mean_v = round(g["release_speed"].mean(), 1)
-        delta = round(mean_v - baseline_v, 1)
-        total_n = len(g)
+        g["group"] = g["pitch_type"].apply(classify_pitch)
+        g = g.dropna(subset=["group"])
 
-        # Trader-friendly: show absolute MPH + delta
-        label = f"{mean_v:.1f} ({delta:+.1f})"
+        total = len(g)
+        if total < 5:
+            continue
 
-        # Direction markers preserved
-        if delta >= 1.2:
-            label += " 🔥"
-        elif delta <= -1.1:
-            label += " ❄️"
-        elif delta >= 0.5:
-            label += " ↑"
-        elif delta <= -0.5:
-            label += " ↓"
+        summary = (
+            g.groupby("group")
+            .agg(
+                n=("group", "size"),
+                mph=("release_speed", "mean")
+            )
+            .reset_index()
+        )
 
-        # Sample-size indicators preserved
-        if total_n < 10:
-            label = f'<span class="dk-low">{label} <span class="dk-info" title="Very small sample">ⓘ</span></span>'
-        elif total_n < 20:
-            label += ' <span class="dk-info" title="Low sample size">ⓘ</span>'
+        summary["pct"] = (summary["n"] / total * 100).round(1)
+        summary["mph"] = summary["mph"].round(1)
 
-        rows.append({"Count": count, "MPH (Δ)": label})
+        # Ensure all 3 groups exist
+        data = {"Fastball": "—", "Breaking": "—", "Offspeed": "—"}
+        pct_dict = {}
+
+        for _, r in summary.iterrows():
+            pct = r["pct"]
+            mph = r["mph"]
+            grp = r["group"]
+            data[grp] = f"{pct}% ({mph})"
+            pct_dict[grp] = pct
+
+        # Determine favorite (only if clearly dominant)
+        if pct_dict:
+            sorted_groups = sorted(pct_dict.items(), key=lambda x: x[1], reverse=True)
+            if len(sorted_groups) > 1:
+                top, second = sorted_groups[0], sorted_groups[1]
+                if top[1] >= second[1] + 10:
+                    fav = top[0]
+                    data[fav] = f"<b>{data[fav]}</b>"
+
+        rows.append({
+            "Count": count,
+            "Fastball": data["Fastball"],
+            "Breaking": data["Breaking"],
+            "Offspeed": data["Offspeed"],
+        })
 
     out = pd.DataFrame(rows)
     if out.empty:
@@ -202,7 +203,6 @@ with c3:
 if not st.button("Run Matchup", use_container_width=True):
     st.stop()
 
-# --- Safe pitcher resolution ---
 try:
     away_f, away_l, away_name = resolve_pitcher(away, season, "Away")
 except ValueError:
@@ -236,32 +236,21 @@ for tab, segment in zip(tabs, split(away_df).keys()):
         ]:
             st.markdown(f"## {name}")
             st.markdown(
-                f'<div class="dk-subtitle">RHP | {role} Pitcher • {segment} • {season}</div>',
+                f'<div class="dk-subtitle">{role} Pitcher • {segment} • {season}</div>',
                 unsafe_allow_html=True,
             )
 
-            baseline_v = df["release_speed"].dropna().mean()
-
-            mix_df = build_pitch_mix(df)
-            st.markdown('<div class="dk-expander">', unsafe_allow_html=True)
-            with st.expander("Pitch Mix", expanded=False):
-                st.markdown(
-                    mix_df.to_html(index=False, classes="dk-table", escape=False),
-                    unsafe_allow_html=True,
-                )
-            st.markdown('</div>', unsafe_allow_html=True)
-
             st.markdown("**vs LHB**")
+            lhb = build_pitch_table(df, "L")
             st.markdown(
-                build_count_delta_table(df, "L", baseline_v)
-                .to_html(index=False, classes="dk-table", escape=False),
+                lhb.to_html(index=False, classes="dk-table", escape=False),
                 unsafe_allow_html=True,
             )
 
             st.markdown("**vs RHB**")
+            rhb = build_pitch_table(df, "R")
             st.markdown(
-                build_count_delta_table(df, "R", baseline_v)
-                .to_html(index=False, classes="dk-table", escape=False),
+                rhb.to_html(index=False, classes="dk-table", escape=False),
                 unsafe_allow_html=True,
             )
 
