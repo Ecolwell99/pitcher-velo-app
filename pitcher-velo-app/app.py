@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
 import re
 import unicodedata
 from pybaseball import chadwick_register
@@ -9,12 +8,12 @@ from data import get_pitcher_data
 # =============================
 # Page setup
 # =============================
-st.set_page_config(page_title="Pitcher Velocity Profiles", layout="wide")
+st.set_page_config(page_title="Pitcher Pitch Profiles", layout="wide")
 
 st.markdown(
     """
-    # Pitcher Velocity Profiles
-    *Velocity behavior by count, inning, and handedness (Statcast)*
+    # Pitcher Pitch Profiles
+    *Pitch selection and velocity by count & handedness*
     """,
     unsafe_allow_html=True,
 )
@@ -25,28 +24,36 @@ st.markdown(
 TABLE_CSS = """
 <style>
 .dk-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 14px;
-  table-layout: fixed;
+    width: 620px;
+    table-layout: fixed;
+    border-collapse: collapse;
+    font-size: 14px;
 }
 .dk-table th, .dk-table td {
-  padding: 10px 12px;
-  border: 1px solid rgba(255,255,255,0.08);
+    padding: 8px 10px;
+    border: 1px solid rgba(255,255,255,0.08);
+    text-align: center;
+}
+.dk-table th:first-child,
+.dk-table td:first-child {
+    text-align: left;
+    width: 80px;
 }
 .dk-table th {
-  text-align: left;
-  background: rgba(255,255,255,0.06);
-  color: rgba(255,255,255,0.85);
+    background: rgba(255,255,255,0.08);
+    font-weight: 600;
 }
-.dk-table tr:nth-child(even) td {
-  background: rgba(255,255,255,0.045);
+.dk-table tbody tr:nth-child(even) td {
+    background: rgba(255,255,255,0.04);
 }
-.dk-bias th:nth-child(1), .dk-bias td:nth-child(1) { width: 110px; }
-.dk-bias th:nth-child(2), .dk-bias td:nth-child(2) { width: auto; }
-.dk-mix th:nth-child(1), .dk-mix td:nth-child(1) { width: 140px; }
-.dk-mix th:nth-child(2), .dk-mix td:nth-child(2) { width: 100px; text-align:right; }
-.dk-mix th:nth-child(3), .dk-mix td:nth-child(3) { width: 100px; text-align:right; }
+.dk-subtitle {
+    opacity: 0.6;
+    margin-top: -6px;
+    margin-bottom: 12px;
+}
+.dk-low {
+    opacity: 0.45;
+}
 </style>
 """
 st.markdown(TABLE_CSS, unsafe_allow_html=True)
@@ -54,16 +61,13 @@ st.markdown(TABLE_CSS, unsafe_allow_html=True)
 # =============================
 # Name normalization
 # =============================
-def normalize_name(name: str) -> str:
-    if not isinstance(name, str):
-        return ""
+def normalize_name(name):
     name = unicodedata.normalize("NFKD", name)
     name = "".join(c for c in name if not unicodedata.combining(c))
-    name = re.sub(r"\s+", " ", name.lower()).strip()
-    return name
+    return re.sub(r"\s+", " ", name.lower()).strip()
 
 # =============================
-# Load Chadwick registry (cached)
+# Registry
 # =============================
 @st.cache_data(show_spinner=False)
 def load_registry():
@@ -72,88 +76,149 @@ def load_registry():
         df.get("name_first", "").fillna("") + " " +
         df.get("name_last", "").fillna("")
     ).str.strip()
-    df["norm_name"] = df["display_name"].apply(normalize_name)
+    df["norm"] = df["display_name"].apply(normalize_name)
     return df
 
 REGISTRY = load_registry()
 
-def savant_url(display_name: str) -> str | None:
-    row = REGISTRY[REGISTRY["display_name"] == display_name]
-    if row.empty:
-        return None
-    for col in ["key_mlbam", "mlbam_id", "key_mlb"]:
-        if col in row.columns and not pd.isna(row.iloc[0][col]):
-            try:
-                return f"https://baseballsavant.mlb.com/savant-player/{int(row.iloc[0][col])}"
-            except Exception:
-                pass
+# =============================
+# Resolve pitcher
+# =============================
+def resolve_pitcher(name, season, role):
+    norm = normalize_name(name)
+    rows = REGISTRY[REGISTRY["norm"] == norm]
+
+    valid = []
+    for _, r in rows.iterrows():
+        try:
+            df = get_pitcher_data(r["name_first"], r["name_last"], season)
+            if not df.empty:
+                valid.append((r["name_first"], r["name_last"], r["display_name"]))
+        except:
+            pass
+
+    if not valid:
+        raise ValueError
+
+    if len(valid) == 1:
+        return valid[0]
+
+    choice = st.radio(f"Select {role} Pitcher", [v[2] for v in valid])
+    return next(v for v in valid if v[2] == choice)
+
+# =============================
+# Pitch group mapping
+# =============================
+FASTBALLS = {"FF", "SI", "FC"}
+BREAKING = {"SL", "CU", "KC", "SV", "ST"}
+OFFSPEED = {"CH", "FS", "FO"}
+
+def classify_pitch(pt):
+    if pt in FASTBALLS:
+        return "Fastball"
+    if pt in BREAKING:
+        return "Breaking"
+    if pt in OFFSPEED:
+        return "Offspeed"
     return None
 
 # =============================
-# Resolve pitcher with Statcast-backed disambiguation
+# Build pitch table
 # =============================
-def resolve_pitcher(input_name: str, season: int, role: str):
-    if not input_name or len(input_name.strip().split()) < 2:
-        raise ValueError("Please enter full first and last name.")
+def build_pitch_table(df, side):
 
-    norm = normalize_name(input_name)
-    matches = REGISTRY[REGISTRY["norm_name"] == norm]
+    rows = []
 
-    if matches.empty:
-        raise ValueError(f"No pitcher found for '{input_name}'.")
-
-    enriched = []
-
-    for _, r in matches.iterrows():
-        try:
-            df = get_pitcher_data(r["name_first"], r["name_last"], season)
-        except ValueError:
+    for count, g in df[df["stand"] == side].groupby("count"):
+        g = g.dropna(subset=["release_speed", "pitch_type"])
+        if g.empty:
             continue
 
-        if df.empty:
+        g["group"] = g["pitch_type"].apply(classify_pitch)
+        g = g.dropna(subset=["group"])
+
+        total = len(g)
+        if total < 5:
             continue
 
-        throws = "LHP" if df["p_throws"].iloc[0] == "L" else "RHP"
-        team = df["home_team"].mode().iloc[0] if "home_team" in df else "UNK"
+        summary = (
+            g.groupby("group")
+            .agg(
+                n=("group", "size"),
+                mph=("release_speed", "mean")
+            )
+            .reset_index()
+        )
 
-        enriched.append({
-            "first": r["name_first"],
-            "last": r["name_last"],
-            "display": r["display_name"],
-            "throws": throws,
-            "team": team,
+        summary["pct"] = (summary["n"] / total * 100).round(1)
+        summary["mph"] = summary["mph"].round(1)
+
+        # Ensure all 3 groups exist
+        data = {"Fastball": "—", "Breaking": "—", "Offspeed": "—"}
+        pct_dict = {}
+
+        for _, r in summary.iterrows():
+            pct = r["pct"]
+            mph = r["mph"]
+            grp = r["group"]
+            data[grp] = f"{pct}% ({mph})"
+            pct_dict[grp] = pct
+
+        # Determine favorite (only if clearly dominant)
+        if pct_dict:
+            sorted_groups = sorted(pct_dict.items(), key=lambda x: x[1], reverse=True)
+            if len(sorted_groups) > 1:
+                top, second = sorted_groups[0], sorted_groups[1]
+                if top[1] >= second[1] + 10:
+                    fav = top[0]
+                    data[fav] = f"<b>{data[fav]}</b>"
+
+        rows.append({
+            "Count": count,
+            "Fastball": data["Fastball"],
+            "Breaking": data["Breaking"],
+            "Offspeed": data["Offspeed"],
         })
 
-    if not enriched:
-        raise ValueError(f"No Statcast data found for '{input_name}' in {season}.")
+    out = pd.DataFrame(rows)
+    if out.empty:
+        return out
 
-    if len(enriched) == 1:
-        e = enriched[0]
-        return e["first"], e["last"], e["display"]
-
-    st.warning(f'Multiple pitchers named "{input_name}" found in {season}. Please select:')
-
-    options = {
-        f'{e["display"]} — {e["throws"]} — {e["team"]}': e
-        for e in enriched
-    }
-
-    choice = st.radio(
-        f"Select {role} Pitcher",
-        list(options.keys()),
-        key=f"disambiguate_{role}",
+    out["s"] = out["Count"].apply(
+        lambda x: int(x.split("-")[0]) * 10 + int(x.split("-")[1])
     )
-
-    e = options[choice]
-    return e["first"], e["last"], e["display"]
+    return out.sort_values("s").drop(columns="s").reset_index(drop=True)
 
 # =============================
-# Analytics helpers
+# Controls
 # =============================
-def get_pitcher_throws(df):
-    return None if df.empty else ("RHP" if df["p_throws"].iloc[0] == "R" else "LHP")
+c1, c2, c3 = st.columns([3, 3, 2])
+with c1:
+    away = st.text_input("Away Pitcher (First Last)")
+with c2:
+    home = st.text_input("Home Pitcher (First Last)")
+with c3:
+    season = st.selectbox("Season", [2025, 2026])
 
-def split_by_inning(df):
+if not st.button("Run Matchup", use_container_width=True):
+    st.stop()
+
+try:
+    away_f, away_l, away_name = resolve_pitcher(away, season, "Away")
+except ValueError:
+    st.error("Away pitcher not found — check spelling or season availability.")
+    st.stop()
+
+try:
+    home_f, home_l, home_name = resolve_pitcher(home, season, "Home")
+except ValueError:
+    st.error("Home pitcher not found — check spelling or season availability.")
+    st.stop()
+
+away_df = get_pitcher_data(away_f, away_l, season)
+home_df = get_pitcher_data(home_f, home_l, season)
+
+def split(df):
     return {
         "All": df,
         "Early (1–2)": df[df["inning"].isin([1, 2])],
@@ -161,139 +226,33 @@ def split_by_inning(df):
         "Late (5+)": df[df["inning"] >= 5],
     }
 
-def build_bias_tables(df):
-    def make(side):
-        rows = []
-        for c, g in df[df["stand"] == side].groupby("count"):
-            v = g["release_speed"].dropna()
-            if v.empty:
-                continue
-            m = v.mean()
-            p = (v >= m).mean()
-            rows.append({
-                "Count": c,
-                "Bias": f"{round(max(p,1-p)*100,1)}% {'Over' if p>=.5 else 'Under'} {m:.1f}"
-            })
-        out = pd.DataFrame(rows)
-        if out.empty:
-            return out
-        out["s"] = out["Count"].apply(lambda x: int(x.split("-")[0])*10+int(x.split("-")[1]))
-        return out.sort_values("s").drop(columns="s")
-    return make("L"), make("R")
+tabs = st.tabs(["All", "Early (1–2)", "Middle (3–4)", "Late (5+)"])
 
-def build_pitch_mix_overall(df):
-    if df.empty:
-        return pd.DataFrame(columns=["Pitch Type","Usage %","Avg MPH"])
-    g = df[df["pitch_type"] != "PO"].dropna(subset=["pitch_type"])
-    if g.empty:
-        return pd.DataFrame(columns=["Pitch Type","Usage %","Avg MPH"])
-    mix = g.groupby("pitch_type").agg(
-        P=("pitch_type","size"),
-        V=("release_speed","mean")
-    ).reset_index().rename(columns={"pitch_type":"Pitch Type"})
-    mix["Usage %"] = (mix["P"]/mix["P"].sum()*100).round(1).astype(str)+"%"
-    mix["Avg MPH"] = mix["V"].round(1).astype(str)
-    return mix.sort_values("Usage %", ascending=False)[["Pitch Type","Usage %","Avg MPH"]]
+for tab, segment in zip(tabs, split(away_df).keys()):
+    with tab:
+        for name, df, role in [
+            (away_name, split(away_df)[segment], "Away"),
+            (home_name, split(home_df)[segment], "Home"),
+        ]:
+            st.markdown(f"## {name}")
+            st.markdown(
+                f'<div class="dk-subtitle">{role} Pitcher • {segment} • {season}</div>',
+                unsafe_allow_html=True,
+            )
 
-def render_table(df, cls):
-    st.markdown(df.to_html(index=False, classes=f"dk-table {cls}", escape=False), unsafe_allow_html=True)
-
-def render_pitcher_header(name: str, context: str):
-    url = savant_url(name)
-    if url:
-        st.markdown(
-            f"""
-            <h2 style="margin-bottom:4px;">
-              {name}
-              <a href="{url}" target="_blank"
-                 style="font-size:16px; opacity:.7; text-decoration:none; border-bottom:none;">
-                🔗
-              </a>
-            </h2>
-            <i>{context}</i>
-            """,
-            unsafe_allow_html=True,
-        )
-    else:
-        st.markdown(f"## {name}\n*{context}*")
-
-# =============================
-# Controls
-# =============================
-c1, c2, c3 = st.columns([3,3,2])
-with c1:
-    away_input = st.text_input("Away Pitcher (First Last)")
-with c2:
-    home_input = st.text_input("Home Pitcher (First Last)")
-with c3:
-    season = st.selectbox("Season", [2025, 2026])
-
-run = st.button("Run Matchup", use_container_width=True)
-if not run:
-    st.stop()
-
-# =============================
-# Resolve pitchers
-# =============================
-try:
-    away_first, away_last, away_name = resolve_pitcher(away_input, season, "Away")
-    home_first, home_last, home_name = resolve_pitcher(home_input, season, "Home")
-except ValueError as e:
-    st.error(str(e))
-    st.stop()
-
-# =============================
-# Pull Statcast data
-# =============================
-try:
-    away_df = get_pitcher_data(away_first, away_last, season)
-    home_df = get_pitcher_data(home_first, home_last, season)
-except ValueError as e:
-    st.error(str(e))
-    st.stop()
-
-away_mix = build_pitch_mix_overall(away_df)
-home_mix = build_pitch_mix_overall(home_df)
-
-tabs = st.tabs(["All","Early (1–2)","Middle (3–4)","Late (5+)"])
-
-for t, key in zip(tabs, ["All","Early (1–2)","Middle (3–4)","Late (5+)"]):
-    with t:
-        render_pitcher_header(
-            away_name,
-            f"{get_pitcher_throws(away_df)} | Away Pitcher • {key} • {season}"
-        )
-        st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
-        with st.expander("Show Pitch Mix (Season Overall)"):
-            render_table(away_mix, "dk-mix")
-
-        lhb, rhb = build_bias_tables(split_by_inning(away_df)[key])
-        cL, cR = st.columns(2)
-        with cL:
             st.markdown("**vs LHB**")
-            render_table(lhb,"dk-bias")
-        with cR:
+            lhb = build_pitch_table(df, "L")
+            st.markdown(
+                lhb.to_html(index=False, classes="dk-table", escape=False),
+                unsafe_allow_html=True,
+            )
+
             st.markdown("**vs RHB**")
-            render_table(rhb,"dk-bias")
+            rhb = build_pitch_table(df, "R")
+            st.markdown(
+                rhb.to_html(index=False, classes="dk-table", escape=False),
+                unsafe_allow_html=True,
+            )
 
-        st.divider()
-
-        render_pitcher_header(
-            home_name,
-            f"{get_pitcher_throws(home_df)} | Home Pitcher • {key} • {season}"
-        )
-        st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
-        with st.expander("Show Pitch Mix (Season Overall)"):
-            render_table(home_mix, "dk-mix")
-
-        lhb, rhb = build_bias_tables(split_by_inning(home_df)[key])
-        cL2, cR2 = st.columns(2)
-        with cL2:
-            st.markdown("**vs LHB**")
-            render_table(lhb,"dk-bias")
-        with cR2:
-            st.markdown("**vs RHB**")
-            render_table(rhb,"dk-bias")
-
-        st.divider()
+            st.divider()
 
