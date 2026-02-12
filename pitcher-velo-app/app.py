@@ -19,50 +19,58 @@ st.markdown(
 )
 
 # =============================
-# Global CSS
+# Global CSS (TIGHTENED)
 # =============================
 TABLE_CSS = """
 <style>
 .dk-table {
-    width: 720px;
+    width: 600px;
     table-layout: fixed;
     border-collapse: collapse;
-    font-size: 14px;
+    font-size: 13px;
 }
+
 .dk-table th, .dk-table td {
-    padding: 8px 10px;
+    padding: 5px 6px;
     border: 1px solid rgba(255,255,255,0.08);
     text-align: center;
 }
+
 .dk-table td {
     color: rgba(255,255,255,0.75);
 }
+
 .dk-table th:first-child,
 .dk-table td:first-child {
     text-align: left;
-    width: 80px;
+    width: 60px;
 }
+
 .dk-table th {
     background: rgba(255,255,255,0.08);
     font-weight: 600;
     color: rgba(255,255,255,0.85);
 }
+
 .dk-table tbody tr:nth-child(even) td {
     background: rgba(255,255,255,0.04);
 }
+
 .dk-fav {
     color: #ffffff;
     font-weight: 600;
 }
+
 .dk-subtitle {
     opacity: 0.6;
     margin-top: -6px;
-    margin-bottom: 12px;
+    margin-bottom: 8px;
 }
+
 .dk-flags {
-    margin-bottom: 10px;
-    line-height: 1.6;
-    font-size: 13px;
+    margin-bottom: 6px;
+    line-height: 1.4;
+    font-size: 12px;
     color: rgba(255,255,255,0.85);
 }
 </style>
@@ -156,19 +164,20 @@ def build_pitch_table(df, side):
 
         summary = (
             g.groupby("group")
-            .agg(
-                n=("group", "size"),
-                mph=("release_speed", "mean")
-            )
+            .agg(n=("group", "size"),
+                 mph=("release_speed", "mean"))
             .reset_index()
         )
 
         summary["pct"] = (summary["n"] / total * 100).round(1)
         summary["mph"] = summary["mph"].round(1)
 
-        data = {"Fastball (% | MPH)": "—",
-                "Breaking (% | MPH)": "—",
-                "Offspeed (% | MPH)": "—"}
+        data = {
+            "Fastball (% | MPH)": "—",
+            "Breaking (% | MPH)": "—",
+            "Offspeed (% | MPH)": "—"
+        }
+
         pct_dict = {}
 
         for _, r in summary.iterrows():
@@ -186,7 +195,6 @@ def build_pitch_table(df, side):
             data[column_name] = label
             pct_dict[grp] = pct
 
-        # Determine dominant pitch (10% higher than second)
         if pct_dict:
             sorted_groups = sorted(pct_dict.items(), key=lambda x: x[1], reverse=True)
             if len(sorted_groups) > 1:
