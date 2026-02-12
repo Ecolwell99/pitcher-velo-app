@@ -190,5 +190,73 @@ def build_pitch_table(df, side):
         return out
 
     out["s"] = out["Count"].apply(
-        lambda x: int(x
+        lambda x: int(x.split("-")[0]) * 10 + int(x.split("-")[1])
+    )
+    return out.sort_values("s").drop(columns="s").reset_index(drop=True)
 
+# =============================
+# Controls
+# =============================
+c1, c2, c3 = st.columns([3, 3, 2])
+with c1:
+    away = st.text_input("Away Pitcher (First Last)")
+with c2:
+    home = st.text_input("Home Pitcher (First Last)")
+with c3:
+    season = st.selectbox("Season", [2025, 2026])
+
+if not st.button("Run Matchup", use_container_width=True):
+    st.stop()
+
+try:
+    away_f, away_l, away_name = resolve_pitcher(away, season, "Away")
+except ValueError:
+    st.error("Away pitcher not found — check spelling or season availability.")
+    st.stop()
+
+try:
+    home_f, home_l, home_name = resolve_pitcher(home, season, "Home")
+except ValueError:
+    st.error("Home pitcher not found — check spelling or season availability.")
+    st.stop()
+
+away_df = get_pitcher_data(away_f, away_l, season)
+home_df = get_pitcher_data(home_f, home_l, season)
+
+def split(df):
+    return {
+        "All": df,
+        "Early (1–2)": df[df["inning"].isin([1, 2])],
+        "Middle (3–4)": df[df["inning"].isin([3, 4])],
+        "Late (5+)": df[df["inning"] >= 5],
+    }
+
+tabs = st.tabs(["All", "Early (1–2)", "Middle (3–4)", "Late (5+)"])
+
+for tab, segment in zip(tabs, split(away_df).keys()):
+    with tab:
+        for name, df, role in [
+            (away_name, split(away_df)[segment], "Away"),
+            (home_name, split(home_df)[segment], "Home"),
+        ]:
+            st.markdown(f"## {name}")
+            st.markdown(
+                f'<div class="dk-subtitle">{role} Pitcher • {segment} • {season}</div>',
+                unsafe_allow_html=True,
+            )
+
+            st.markdown("**vs LHB**")
+            lhb = build_pitch_table(df, "L")
+            st.markdown(
+                lhb.to_html(index=False, classes="dk-table", escape=False),
+                unsafe_allow_html=True,
+            )
+
+            st.markdown("**vs RHB**")
+            rhb = build_pitch_table(df, "R")
+            st.markdown(
+                rhb.to_html(index=False, classes="dk-table", escape=False),
+                unsafe_allow_html=True,
+            )
+
+            st.divider()
