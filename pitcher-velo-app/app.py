@@ -19,40 +19,59 @@ st.markdown(
 )
 
 # =============================
-# Global CSS
+# Global CSS (TIGHTENED)
 # =============================
 TABLE_CSS = """
 <style>
 .dk-table {
-    width: 620px;
+    width: 600px;
     table-layout: fixed;
     border-collapse: collapse;
-    font-size: 14px;
+    font-size: 13px;
 }
+
 .dk-table th, .dk-table td {
-    padding: 8px 10px;
+    padding: 5px 6px;
     border: 1px solid rgba(255,255,255,0.08);
     text-align: center;
 }
+
+.dk-table td {
+    color: rgba(255,255,255,0.75);
+}
+
 .dk-table th:first-child,
 .dk-table td:first-child {
     text-align: left;
-    width: 80px;
+    width: 60px;
 }
+
 .dk-table th {
     background: rgba(255,255,255,0.08);
     font-weight: 600;
+    color: rgba(255,255,255,0.85);
 }
+
 .dk-table tbody tr:nth-child(even) td {
     background: rgba(255,255,255,0.04);
 }
+
+.dk-fav {
+    color: #ffffff;
+    font-weight: 600;
+}
+
 .dk-subtitle {
     opacity: 0.6;
     margin-top: -6px;
-    margin-bottom: 12px;
+    margin-bottom: 8px;
 }
-.dk-low {
-    opacity: 0.45;
+
+.dk-flags {
+    margin-bottom: 6px;
+    line-height: 1.4;
+    font-size: 12px;
+    color: rgba(255,255,255,0.85);
 }
 </style>
 """
@@ -128,12 +147,14 @@ def classify_pitch(pt):
 def build_pitch_table(df, side):
 
     rows = []
+    dominance_tracker = {}
 
     for count, g in df[df["stand"] == side].groupby("count"):
         g = g.dropna(subset=["release_speed", "pitch_type"])
         if g.empty:
             continue
 
+        g = g.copy()
         g["group"] = g["pitch_type"].apply(classify_pitch)
         g = g.dropna(subset=["group"])
 
@@ -143,51 +164,90 @@ def build_pitch_table(df, side):
 
         summary = (
             g.groupby("group")
-            .agg(
-                n=("group", "size"),
-                mph=("release_speed", "mean")
-            )
+            .agg(n=("group", "size"),
+                 mph=("release_speed", "mean"))
             .reset_index()
         )
 
         summary["pct"] = (summary["n"] / total * 100).round(1)
         summary["mph"] = summary["mph"].round(1)
 
-        # Ensure all 3 groups exist
-        data = {"Fastball": "—", "Breaking": "—", "Offspeed": "—"}
+        data = {
+            "Fastball (% | MPH)": "—",
+            "Breaking (% | MPH)": "—",
+            "Offspeed (% | MPH)": "—"
+        }
+
         pct_dict = {}
 
         for _, r in summary.iterrows():
             pct = r["pct"]
-            mph = r["mph"]
+            mean_mph = r["mph"]
             grp = r["group"]
-            data[grp] = f"{pct}% ({mph})"
+
+            lower = int(round(mean_mph - 1))
+            upper = int(round(mean_mph + 1))
+            cluster = f"{lower}-{upper}"
+
+            label = f"{pct}% ({cluster})"
+
+            column_name = f"{grp} (% | MPH)"
+            data[column_name] = label
             pct_dict[grp] = pct
 
-        # Determine favorite (only if clearly dominant)
         if pct_dict:
             sorted_groups = sorted(pct_dict.items(), key=lambda x: x[1], reverse=True)
             if len(sorted_groups) > 1:
                 top, second = sorted_groups[0], sorted_groups[1]
                 if top[1] >= second[1] + 10:
                     fav = top[0]
-                    data[fav] = f"<b>{data[fav]}</b>"
+                    fav_col = f"{fav} (% | MPH)"
+                    data[fav_col] = f"<span class='dk-fav'>{data[fav_col]}</span>"
+                    dominance_tracker[count] = fav
 
-        rows.append({
-            "Count": count,
-            "Fastball": data["Fastball"],
-            "Breaking": data["Breaking"],
-            "Offspeed": data["Offspeed"],
-        })
+        row = {"Count": count}
+        row.update(data)
+        rows.append(row)
 
     out = pd.DataFrame(rows)
     if out.empty:
-        return out
+        return out, {}
 
     out["s"] = out["Count"].apply(
         lambda x: int(x.split("-")[0]) * 10 + int(x.split("-")[1])
     )
-    return out.sort_values("s").drop(columns="s").reset_index(drop=True)
+    out = out.sort_values("s").drop(columns="s").reset_index(drop=True)
+
+    return out, dominance_tracker
+
+# =============================
+# Structural Flags
+# =============================
+def build_structure_flags(dominance_tracker):
+
+    early = {"0-0", "1-0", "0-1"}
+    two_strike = {"0-2", "1-2", "2-2"}
+    full = {"3-2"}
+
+    def most_common(counts):
+        vals = [dominance_tracker[c] for c in counts if c in dominance_tracker]
+        if not vals:
+            return None
+        return max(set(vals), key=vals.count)
+
+    flags = []
+    early_flag = most_common(early)
+    two_flag = most_common(two_strike)
+    full_flag = most_common(full)
+
+    if early_flag:
+        flags.append(f"• Early Counts: {early_flag}")
+    if two_flag:
+        flags.append(f"• 2-Strike: {two_flag}")
+    if full_flag:
+        flags.append(f"• Full Count: {full_flag}")
+
+    return flags
 
 # =============================
 # Controls
@@ -240,19 +300,23 @@ for tab, segment in zip(tabs, split(away_df).keys()):
                 unsafe_allow_html=True,
             )
 
-            st.markdown("**vs LHB**")
-            lhb = build_pitch_table(df, "L")
-            st.markdown(
-                lhb.to_html(index=False, classes="dk-table", escape=False),
-                unsafe_allow_html=True,
-            )
+            for side in ["L", "R"]:
+                label = "vs LHB" if side == "L" else "vs RHB"
+                st.markdown(f"### {label}")
 
-            st.markdown("**vs RHB**")
-            rhb = build_pitch_table(df, "R")
-            st.markdown(
-                rhb.to_html(index=False, classes="dk-table", escape=False),
-                unsafe_allow_html=True,
-            )
+                table, dominance = build_pitch_table(df, side)
+                flags = build_structure_flags(dominance)
+
+                if flags:
+                    st.markdown(
+                        "<div class='dk-flags'>" + "<br>".join(flags) + "</div>",
+                        unsafe_allow_html=True,
+                    )
+
+                st.markdown(
+                    table.to_html(index=False, classes="dk-table", escape=False),
+                    unsafe_allow_html=True,
+                )
 
             st.divider()
 
