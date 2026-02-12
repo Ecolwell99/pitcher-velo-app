@@ -24,7 +24,7 @@ st.markdown(
 TABLE_CSS = """
 <style>
 .dk-table {
-    width: 620px;
+    width: 720px;
     table-layout: fixed;
     border-collapse: collapse;
     font-size: 14px;
@@ -166,7 +166,9 @@ def build_pitch_table(df, side):
         summary["pct"] = (summary["n"] / total * 100).round(1)
         summary["mph"] = summary["mph"].round(1)
 
-        data = {"Fastball": "—", "Breaking": "—", "Offspeed": "—"}
+        data = {"Fastball (% | MPH)": "—",
+                "Breaking (% | MPH)": "—",
+                "Offspeed (% | MPH)": "—"}
         pct_dict = {}
 
         for _, r in summary.iterrows():
@@ -178,25 +180,26 @@ def build_pitch_table(df, side):
             upper = int(round(mean_mph + 1))
             cluster = f"{lower}-{upper}"
 
-            data[grp] = f"{pct}% ({cluster})"
+            label = f"{pct}% ({cluster})"
+
+            column_name = f"{grp} (% | MPH)"
+            data[column_name] = label
             pct_dict[grp] = pct
 
-        # Determine dominant pitch
+        # Determine dominant pitch (10% higher than second)
         if pct_dict:
             sorted_groups = sorted(pct_dict.items(), key=lambda x: x[1], reverse=True)
             if len(sorted_groups) > 1:
                 top, second = sorted_groups[0], sorted_groups[1]
                 if top[1] >= second[1] + 10:
                     fav = top[0]
-                    data[fav] = f"<span class='dk-fav'>{data[fav]}</span>"
+                    fav_col = f"{fav} (% | MPH)"
+                    data[fav_col] = f"<span class='dk-fav'>{data[fav_col]}</span>"
                     dominance_tracker[count] = fav
 
-        rows.append({
-            "Count": count,
-            "Fastball": data["Fastball"],
-            "Breaking": data["Breaking"],
-            "Offspeed": data["Offspeed"],
-        })
+        row = {"Count": count}
+        row.update(data)
+        rows.append(row)
 
     out = pd.DataFrame(rows)
     if out.empty:
@@ -224,11 +227,11 @@ def build_structure_flags(dominance_tracker):
             return None
         return max(set(vals), key=vals.count)
 
+    flags = []
     early_flag = most_common(early)
     two_flag = most_common(two_strike)
     full_flag = most_common(full)
 
-    flags = []
     if early_flag:
         flags.append(f"• Early Counts: {early_flag}")
     if two_flag:
