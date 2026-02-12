@@ -46,13 +46,19 @@ TABLE_CSS = """
 .dk-table tbody tr:nth-child(even) td {
     background: rgba(255,255,255,0.04);
 }
+
+/* Green highlight for dominant pitch */
+.dk-fav {
+    background-color: rgba(0, 200, 100, 0.18);
+    border-radius: 6px;
+    padding: 3px 6px;
+    font-weight: 600;
+}
+
 .dk-subtitle {
     opacity: 0.6;
     margin-top: -6px;
     margin-bottom: 12px;
-}
-.dk-low {
-    opacity: 0.45;
 }
 </style>
 """
@@ -143,17 +149,13 @@ def build_pitch_table(df, side):
 
         summary = (
             g.groupby("group")
-            .agg(
-                n=("group", "size"),
-                mph=("release_speed", "mean")
-            )
+            .agg(n=("group", "size"), mph=("release_speed", "mean"))
             .reset_index()
         )
 
         summary["pct"] = (summary["n"] / total * 100).round(1)
         summary["mph"] = summary["mph"].round(1)
 
-        # Ensure all 3 groups exist
         data = {"Fastball": "—", "Breaking": "—", "Offspeed": "—"}
         pct_dict = {}
 
@@ -164,14 +166,14 @@ def build_pitch_table(df, side):
             data[grp] = f"{pct}% ({mph})"
             pct_dict[grp] = pct
 
-        # Determine favorite (only if clearly dominant)
+        # Determine dominant pitch (must be 10% higher than second)
         if pct_dict:
             sorted_groups = sorted(pct_dict.items(), key=lambda x: x[1], reverse=True)
             if len(sorted_groups) > 1:
                 top, second = sorted_groups[0], sorted_groups[1]
                 if top[1] >= second[1] + 10:
                     fav = top[0]
-                    data[fav] = f"<b>{data[fav]}</b>"
+                    data[fav] = f"<span class='dk-fav'>{data[fav]}</span>"
 
         rows.append({
             "Count": count,
