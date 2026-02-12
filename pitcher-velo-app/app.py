@@ -34,6 +34,12 @@ TABLE_CSS = """
     border: 1px solid rgba(255,255,255,0.08);
     text-align: center;
 }
+
+/* Slightly mute all cell text */
+.dk-table td {
+    color: rgba(255,255,255,0.75);
+}
+
 .dk-table th:first-child,
 .dk-table td:first-child {
     text-align: left;
@@ -42,16 +48,16 @@ TABLE_CSS = """
 .dk-table th {
     background: rgba(255,255,255,0.08);
     font-weight: 600;
+    color: rgba(255,255,255,0.85);
 }
 .dk-table tbody tr:nth-child(even) td {
     background: rgba(255,255,255,0.04);
 }
 
-/* Softer institutional green highlight */
+/* Dominant pitch styling */
 .dk-fav {
-    background-color: rgba(40, 167, 69, 0.12);
-    border-radius: 4px;
-    padding: 2px 6px;
+    color: #ffffff;
+    font-weight: 600;
 }
 
 .dk-subtitle {
@@ -169,7 +175,7 @@ def build_pitch_table(df, side):
             data[grp] = f"{pct}% ({mph})"
             pct_dict[grp] = pct
 
-        # Determine dominant pitch (must be 10% higher than second highest)
+        # Determine dominant pitch (must be 10% higher than second)
         if pct_dict:
             sorted_groups = sorted(pct_dict.items(), key=lambda x: x[1], reverse=True)
             if len(sorted_groups) > 1:
@@ -260,3 +266,4 @@ for tab, segment in zip(tabs, split(away_df).keys()):
             )
 
             st.divider()
+
