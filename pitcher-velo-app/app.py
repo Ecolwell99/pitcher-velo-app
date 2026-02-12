@@ -19,7 +19,7 @@ st.markdown(
 )
 
 # =============================
-# Global CSS (TIGHTENED)
+# Global CSS (TIGHT + COUNT FIX)
 # =============================
 TABLE_CSS = """
 <style>
@@ -36,14 +36,18 @@ TABLE_CSS = """
     text-align: center;
 }
 
+/* Slightly muted default cells */
 .dk-table td {
     color: rgba(255,255,255,0.75);
 }
 
+/* Count column emphasized */
 .dk-table th:first-child,
 .dk-table td:first-child {
     text-align: left;
     width: 60px;
+    color: #ffffff;
+    font-weight: 600;
 }
 
 .dk-table th {
@@ -56,6 +60,7 @@ TABLE_CSS = """
     background: rgba(255,255,255,0.04);
 }
 
+/* Dominant pitch */
 .dk-fav {
     color: #ffffff;
     font-weight: 600;
