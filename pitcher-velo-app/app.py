@@ -34,12 +34,9 @@ TABLE_CSS = """
     border: 1px solid rgba(255,255,255,0.08);
     text-align: center;
 }
-
-/* Slightly mute all cell text */
 .dk-table td {
     color: rgba(255,255,255,0.75);
 }
-
 .dk-table th:first-child,
 .dk-table td:first-child {
     text-align: left;
@@ -53,17 +50,20 @@ TABLE_CSS = """
 .dk-table tbody tr:nth-child(even) td {
     background: rgba(255,255,255,0.04);
 }
-
-/* Dominant pitch styling */
 .dk-fav {
     color: #ffffff;
     font-weight: 600;
 }
-
 .dk-subtitle {
     opacity: 0.6;
     margin-top: -6px;
     margin-bottom: 12px;
+}
+.dk-flags {
+    margin-bottom: 10px;
+    line-height: 1.6;
+    font-size: 13px;
+    color: rgba(255,255,255,0.85);
 }
 </style>
 """
@@ -139,6 +139,7 @@ def classify_pitch(pt):
 def build_pitch_table(df, side):
 
     rows = []
+    dominance_tracker = {}
 
     for count, g in df[df["stand"] == side].groupby("count"):
         g = g.dropna(subset=["release_speed", "pitch_type"])
@@ -170,12 +171,17 @@ def build_pitch_table(df, side):
 
         for _, r in summary.iterrows():
             pct = r["pct"]
-            mph = r["mph"]
+            mean_mph = r["mph"]
             grp = r["group"]
-            data[grp] = f"{pct}% ({mph})"
+
+            lower = int(round(mean_mph - 1))
+            upper = int(round(mean_mph + 1))
+            cluster = f"{lower}-{upper}"
+
+            data[grp] = f"{pct}% ({cluster})"
             pct_dict[grp] = pct
 
-        # Determine dominant pitch (must be 10% higher than second)
+        # Determine dominant pitch
         if pct_dict:
             sorted_groups = sorted(pct_dict.items(), key=lambda x: x[1], reverse=True)
             if len(sorted_groups) > 1:
@@ -183,6 +189,7 @@ def build_pitch_table(df, side):
                 if top[1] >= second[1] + 10:
                     fav = top[0]
                     data[fav] = f"<span class='dk-fav'>{data[fav]}</span>"
+                    dominance_tracker[count] = fav
 
         rows.append({
             "Count": count,
@@ -193,12 +200,43 @@ def build_pitch_table(df, side):
 
     out = pd.DataFrame(rows)
     if out.empty:
-        return out
+        return out, {}
 
     out["s"] = out["Count"].apply(
         lambda x: int(x.split("-")[0]) * 10 + int(x.split("-")[1])
     )
-    return out.sort_values("s").drop(columns="s").reset_index(drop=True)
+    out = out.sort_values("s").drop(columns="s").reset_index(drop=True)
+
+    return out, dominance_tracker
+
+# =============================
+# Structural Flags
+# =============================
+def build_structure_flags(dominance_tracker):
+
+    early = {"0-0", "1-0", "0-1"}
+    two_strike = {"0-2", "1-2", "2-2"}
+    full = {"3-2"}
+
+    def most_common(counts):
+        vals = [dominance_tracker[c] for c in counts if c in dominance_tracker]
+        if not vals:
+            return None
+        return max(set(vals), key=vals.count)
+
+    early_flag = most_common(early)
+    two_flag = most_common(two_strike)
+    full_flag = most_common(full)
+
+    flags = []
+    if early_flag:
+        flags.append(f"• Early Counts: {early_flag}")
+    if two_flag:
+        flags.append(f"• 2-Strike: {two_flag}")
+    if full_flag:
+        flags.append(f"• Full Count: {full_flag}")
+
+    return flags
 
 # =============================
 # Controls
@@ -251,19 +289,23 @@ for tab, segment in zip(tabs, split(away_df).keys()):
                 unsafe_allow_html=True,
             )
 
-            st.markdown("**vs LHB**")
-            lhb = build_pitch_table(df, "L")
-            st.markdown(
-                lhb.to_html(index=False, classes="dk-table", escape=False),
-                unsafe_allow_html=True,
-            )
+            for side in ["L", "R"]:
+                label = "vs LHB" if side == "L" else "vs RHB"
+                st.markdown(f"### {label}")
 
-            st.markdown("**vs RHB**")
-            rhb = build_pitch_table(df, "R")
-            st.markdown(
-                rhb.to_html(index=False, classes="dk-table", escape=False),
-                unsafe_allow_html=True,
-            )
+                table, dominance = build_pitch_table(df, side)
+                flags = build_structure_flags(dominance)
+
+                if flags:
+                    st.markdown(
+                        "<div class='dk-flags'>" + "<br>".join(flags) + "</div>",
+                        unsafe_allow_html=True,
+                    )
+
+                st.markdown(
+                    table.to_html(index=False, classes="dk-table", escape=False),
+                    unsafe_allow_html=True,
+                )
 
             st.divider()
 
