@@ -2,24 +2,29 @@ import streamlit as st
 import pandas as pd
 import re
 import unicodedata
+import numpy as np
 from pybaseball import chadwick_register
 from data import get_pitcher_data
 
 # =============================
 # Page setup
 # =============================
-st.set_page_config(page_title="Pitcher Pitch Profiles", layout="wide")
+st.set_page_config(page_title="Pitch Tendencies", layout="wide")
 
 st.markdown(
     """
-    # Pitcher Pitch Profiles
-    *Pitch selection and velocity by count & handedness*
+    <div style="font-size:30px; font-weight:700;">
+        Pitch Tendencies
+    </div>
+    <div style="opacity:0.6; margin-top:4px; margin-bottom:18px;">
+        By count & split
+    </div>
     """,
     unsafe_allow_html=True,
 )
 
 # =============================
-# Global CSS (TIGHTENED)
+# CSS
 # =============================
 TABLE_CSS = """
 <style>
@@ -29,65 +34,54 @@ TABLE_CSS = """
     border-collapse: collapse;
     font-size: 13px;
 }
-
 .dk-table th, .dk-table td {
     padding: 5px 6px;
     border: 1px solid rgba(255,255,255,0.08);
     text-align: center;
 }
-
 .dk-table td {
-    color: rgba(255,255,255,0.75);
+    color: #ffffff;
 }
-
 .dk-table th:first-child,
 .dk-table td:first-child {
     text-align: left;
     width: 60px;
+    font-weight: 600;
 }
-
 .dk-table th {
     background: rgba(255,255,255,0.08);
     font-weight: 600;
-    color: rgba(255,255,255,0.85);
 }
-
 .dk-table tbody tr:nth-child(even) td {
     background: rgba(255,255,255,0.04);
 }
-
 .dk-fav {
-    color: #ffffff;
     font-weight: 600;
+    background-color: rgba(255,255,255,0.12);
+    border-radius: 8px;
+    padding: 2px 8px;
 }
-
 .dk-subtitle {
     opacity: 0.6;
-    margin-top: -6px;
-    margin-bottom: 8px;
+    margin-bottom: 12px;
 }
-
-.dk-flags {
-    margin-bottom: 6px;
-    line-height: 1.4;
+.dk-mix {
     font-size: 12px;
-    color: rgba(255,255,255,0.85);
+    margin-bottom: 8px;
+    opacity: 0.75;
 }
 </style>
 """
 st.markdown(TABLE_CSS, unsafe_allow_html=True)
 
 # =============================
-# Name normalization
+# Helpers
 # =============================
 def normalize_name(name):
     name = unicodedata.normalize("NFKD", name)
     name = "".join(c for c in name if not unicodedata.combining(c))
     return re.sub(r"\s+", " ", name.lower()).strip()
 
-# =============================
-# Registry
-# =============================
 @st.cache_data(show_spinner=False)
 def load_registry():
     df = chadwick_register().copy()
@@ -100,9 +94,6 @@ def load_registry():
 
 REGISTRY = load_registry()
 
-# =============================
-# Resolve pitcher
-# =============================
 def resolve_pitcher(name, season, role):
     norm = normalize_name(name)
     rows = REGISTRY[REGISTRY["norm"] == norm]
@@ -125,129 +116,110 @@ def resolve_pitcher(name, season, role):
     choice = st.radio(f"Select {role} Pitcher", [v[2] for v in valid])
     return next(v for v in valid if v[2] == choice)
 
-# =============================
-# Pitch group mapping
-# =============================
 FASTBALLS = {"FF", "SI", "FC"}
 BREAKING = {"SL", "CU", "KC", "SV", "ST"}
 OFFSPEED = {"CH", "FS", "FO"}
 
-def classify_pitch(pt):
-    if pt in FASTBALLS:
-        return "Fastball"
-    if pt in BREAKING:
-        return "Breaking"
-    if pt in OFFSPEED:
-        return "Offspeed"
-    return None
+# =============================
+# Inline mix
+# =============================
+def build_inline_mix(df, side):
+    g = df[df["stand"] == side].dropna(subset=["pitch_type"])
+    if g.empty:
+        return None
+
+    mix = g.groupby("pitch_type").size().reset_index(name="n")
+    total = mix["n"].sum()
+    mix["pct"] = (mix["n"] / total * 100).round(0)
+    mix = mix.sort_values("pct", ascending=False)
+
+    return " | ".join(f"{r['pitch_type']} {int(r['pct'])}%" for _, r in mix.iterrows())
 
 # =============================
-# Build pitch table
+# Pitch table builder
 # =============================
 def build_pitch_table(df, side):
-
     rows = []
-    dominance_tracker = {}
 
     for count, g in df[df["stand"] == side].groupby("count"):
         g = g.dropna(subset=["release_speed", "pitch_type"])
         if g.empty:
             continue
 
-        g = g.copy()
-        g["group"] = g["pitch_type"].apply(classify_pitch)
-        g = g.dropna(subset=["group"])
-
         total = len(g)
         if total < 5:
             continue
 
         summary = (
-            g.groupby("group")
-            .agg(n=("group", "size"),
-                 mph=("release_speed", "mean"))
+            g.groupby("pitch_type")
+            .agg(n=("pitch_type", "size"),
+                 mph_list=("release_speed", list))
             .reset_index()
         )
 
-        summary["pct"] = (summary["n"] / total * 100).round(1)
-        summary["mph"] = summary["mph"].round(1)
+        summary["pct"] = (summary["n"] / total * 100).round(0)
 
-        data = {
-            "Fastball (% | MPH)": "—",
-            "Breaking (% | MPH)": "—",
-            "Offspeed (% | MPH)": "—"
-        }
-
-        pct_dict = {}
+        group_totals = {"Fastball": 0, "Breaking": 0, "Offspeed": 0}
+        dominant_velos = {"Fastball": None, "Breaking": None, "Offspeed": None}
+        dominant_pct = {"Fastball": 0, "Breaking": 0, "Offspeed": 0}
 
         for _, r in summary.iterrows():
-            pct = r["pct"]
-            mean_mph = r["mph"]
-            grp = r["group"]
+            pt = r["pitch_type"]
+            pct = int(r["pct"])
+            velocities = np.array(r["mph_list"])
 
-            lower = int(round(mean_mph - 1))
-            upper = int(round(mean_mph + 1))
-            cluster = f"{lower}-{upper}"
+            if pt in FASTBALLS:
+                group = "Fastball"
+            elif pt in BREAKING:
+                group = "Breaking"
+            elif pt in OFFSPEED:
+                group = "Offspeed"
+            else:
+                continue
 
-            label = f"{pct}% ({cluster})"
+            group_totals[group] += pct
 
-            column_name = f"{grp} (% | MPH)"
-            data[column_name] = label
-            pct_dict[grp] = pct
+            if pct > dominant_pct[group]:
+                dominant_pct[group] = pct
+                dominant_velos[group] = velocities
 
-        if pct_dict:
-            sorted_groups = sorted(pct_dict.items(), key=lambda x: x[1], reverse=True)
-            if len(sorted_groups) > 1:
-                top, second = sorted_groups[0], sorted_groups[1]
-                if top[1] >= second[1] + 10:
-                    fav = top[0]
-                    fav_col = f"{fav} (% | MPH)"
-                    data[fav_col] = f"<span class='dk-fav'>{data[fav_col]}</span>"
-                    dominance_tracker[count] = fav
+        row_data = {"Count": count}
 
-        row = {"Count": count}
-        row.update(data)
-        rows.append(row)
+        for group in ["Fastball", "Breaking", "Offspeed"]:
+            if group_totals[group] > 0:
+                velocities = dominant_velos[group]
+                pct = group_totals[group]
+
+                if len(velocities) >= 15:
+                    lower = int(round(np.percentile(velocities, 10)))
+                    upper = int(round(np.percentile(velocities, 90)))
+                else:
+                    mean = velocities.mean()
+                    lower = int(round(mean - 1))
+                    upper = int(round(mean + 1))
+
+                cluster = f"{lower}-{upper}"
+                label = f"{pct}% ({cluster})"
+                row_data[group] = label
+            else:
+                row_data[group] = "—"
+
+        sorted_groups = sorted(group_totals.items(), key=lambda x: x[1], reverse=True)
+        if len(sorted_groups) > 1:
+            top, second = sorted_groups[0], sorted_groups[1]
+            if top[1] >= second[1] + 10:
+                row_data[top[0]] = f"<span class='dk-fav'>{row_data[top[0]]}</span>"
+
+        rows.append(row_data)
 
     out = pd.DataFrame(rows)
     if out.empty:
-        return out, {}
+        return out
 
     out["s"] = out["Count"].apply(
         lambda x: int(x.split("-")[0]) * 10 + int(x.split("-")[1])
     )
-    out = out.sort_values("s").drop(columns="s").reset_index(drop=True)
-
-    return out, dominance_tracker
-
-# =============================
-# Structural Flags
-# =============================
-def build_structure_flags(dominance_tracker):
-
-    early = {"0-0", "1-0", "0-1"}
-    two_strike = {"0-2", "1-2", "2-2"}
-    full = {"3-2"}
-
-    def most_common(counts):
-        vals = [dominance_tracker[c] for c in counts if c in dominance_tracker]
-        if not vals:
-            return None
-        return max(set(vals), key=vals.count)
-
-    flags = []
-    early_flag = most_common(early)
-    two_flag = most_common(two_strike)
-    full_flag = most_common(full)
-
-    if early_flag:
-        flags.append(f"• Early Counts: {early_flag}")
-    if two_flag:
-        flags.append(f"• 2-Strike: {two_flag}")
-    if full_flag:
-        flags.append(f"• Full Count: {full_flag}")
-
-    return flags
+    return out.sort_values("s").drop(columns="s").reset_index(drop=True)
 
 # =============================
 # Controls
@@ -263,21 +235,15 @@ with c3:
 if not st.button("Run Matchup", use_container_width=True):
     st.stop()
 
-try:
-    away_f, away_l, away_name = resolve_pitcher(away, season, "Away")
-except ValueError:
-    st.error("Away pitcher not found — check spelling or season availability.")
-    st.stop()
-
-try:
-    home_f, home_l, home_name = resolve_pitcher(home, season, "Home")
-except ValueError:
-    st.error("Home pitcher not found — check spelling or season availability.")
-    st.stop()
+away_f, away_l, away_name = resolve_pitcher(away, season, "Away")
+home_f, home_l, home_name = resolve_pitcher(home, season, "Home")
 
 away_df = get_pitcher_data(away_f, away_l, season)
 home_df = get_pitcher_data(home_f, home_l, season)
 
+# =============================
+# Segment Split (RESTORED)
+# =============================
 def split(df):
     return {
         "All": df,
@@ -294,29 +260,35 @@ for tab, segment in zip(tabs, split(away_df).keys()):
             (away_name, split(away_df)[segment], "Away"),
             (home_name, split(home_df)[segment], "Home"),
         ]:
-            st.markdown(f"## {name}")
             st.markdown(
-                f'<div class="dk-subtitle">{role} Pitcher • {segment} • {season}</div>',
-                unsafe_allow_html=True,
+                f"<div style='font-size:24px; font-weight:700; margin-top:10px;'>{name}</div>",
+                unsafe_allow_html=True
+            )
+            st.markdown(
+                f"<div class='dk-subtitle'>{role} Pitcher • {segment} • {season}</div>",
+                unsafe_allow_html=True
             )
 
             for side in ["L", "R"]:
                 label = "vs LHB" if side == "L" else "vs RHB"
-                st.markdown(f"### {label}")
 
-                table, dominance = build_pitch_table(df, side)
-                flags = build_structure_flags(dominance)
+                st.markdown(
+                    f"<div style='font-weight:600; font-size:15px; margin-top:10px;'>{label}</div>",
+                    unsafe_allow_html=True
+                )
 
-                if flags:
+                mix_line = build_inline_mix(df, side)
+                if mix_line:
                     st.markdown(
-                        "<div class='dk-flags'>" + "<br>".join(flags) + "</div>",
+                        f"<div class='dk-mix'>Mix: {mix_line}</div>",
                         unsafe_allow_html=True,
                     )
 
+                table = build_pitch_table(df, side)
                 st.markdown(
                     table.to_html(index=False, classes="dk-table", escape=False),
                     unsafe_allow_html=True,
                 )
 
-            st.divider()
+            st.markdown("<hr style='opacity:0.2;'>", unsafe_allow_html=True)
 
