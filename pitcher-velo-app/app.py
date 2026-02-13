@@ -122,30 +122,41 @@ def resolve_pitcher(name, season, role):
     return next(v for v in valid if v[2] == choice)
 
 # =============================
-# Get Current Team
+# Most Recent Team Logic
 # =============================
 def get_current_team(df):
     if df.empty:
         return None
 
+    if "game_date" not in df.columns:
+        return None
+
+    latest_row = df.sort_values("game_date", ascending=False).iloc[0]
+
     if "home_team" in df.columns and "away_team" in df.columns:
-        home_counts = df["home_team"].value_counts()
-        away_counts = df["away_team"].value_counts()
-        combined = pd.concat([home_counts, away_counts])
-        if not combined.empty:
-            return combined.idxmax()
+        if "inning_topbot" in df.columns:
+            if latest_row["inning_topbot"] == "Top":
+                return latest_row["home_team"]
+            else:
+                return latest_row["away_team"]
+        else:
+            # fallback if inning_topbot not present
+            return latest_row["home_team"]
 
     if "team" in df.columns:
-        return df["team"].mode().iloc[0]
+        return latest_row["team"]
 
     return None
 
+# =============================
+# Pitch group definitions
+# =============================
 FASTBALLS = {"FF", "SI", "FC"}
 BREAKING = {"SL", "CU", "KC", "SV", "ST"}
 OFFSPEED = {"CH", "FS", "FO"}
 
 # =============================
-# Inline Mix
+# Inline Mix (percent only)
 # =============================
 def build_inline_mix(df, side):
     g = df[df["stand"] == side].dropna(subset=["pitch_type"])
@@ -175,14 +186,17 @@ def build_structure_flags(df, side):
             continue
 
         top_pitch = counts.idxmax()
-        top_pct = counts.max()
 
-        if pt_in_group := (
-            "Fastball" if top_pitch in FASTBALLS else
-            "Breaking" if top_pitch in BREAKING else
-            "Offspeed" if top_pitch in OFFSPEED else None
-        ):
-            dominance[count] = pt_in_group
+        if top_pitch in FASTBALLS:
+            group = "Fastball"
+        elif top_pitch in BREAKING:
+            group = "Breaking"
+        elif top_pitch in OFFSPEED:
+            group = "Offspeed"
+        else:
+            continue
+
+        dominance[count] = group
 
     early = {"0-0", "1-0", "0-1"}
     two_strike = {"0-2", "1-2", "2-2"}
@@ -208,6 +222,7 @@ def build_structure_flags(df, side):
 # Pitch Table
 # =============================
 def build_pitch_table(df, side):
+
     rows = []
 
     for count, g in df[df["stand"] == side].groupby("count"):
@@ -268,8 +283,7 @@ def build_pitch_table(df, side):
                     upper = int(round(mean + 1))
 
                 cluster = f"{lower}-{upper}"
-                label = f"{pct}% ({cluster})"
-                row_data[group] = label
+                row_data[group] = f"{pct}% ({cluster})"
             else:
                 row_data[group] = "—"
 
