@@ -20,7 +20,7 @@ st.markdown(
 )
 
 # =============================
-# Global CSS (tight + clean)
+# Global CSS (tight layout)
 # =============================
 TABLE_CSS = """
 <style>
@@ -76,6 +76,12 @@ TABLE_CSS = """
     font-size: 12px;
     color: rgba(255,255,255,0.85);
 }
+
+.dk-mix {
+    font-size: 12px;
+    margin-bottom: 6px;
+    color: rgba(255,255,255,0.85);
+}
 </style>
 """
 st.markdown(TABLE_CSS, unsafe_allow_html=True)
@@ -88,9 +94,6 @@ def normalize_name(name):
     name = "".join(c for c in name if not unicodedata.combining(c))
     return re.sub(r"\s+", " ", name.lower()).strip()
 
-# =============================
-# Registry
-# =============================
 @st.cache_data(show_spinner=False)
 def load_registry():
     df = chadwick_register().copy()
@@ -103,9 +106,6 @@ def load_registry():
 
 REGISTRY = load_registry()
 
-# =============================
-# Resolve pitcher
-# =============================
 def resolve_pitcher(name, season, role):
     norm = normalize_name(name)
     rows = REGISTRY[REGISTRY["norm"] == norm]
@@ -145,7 +145,34 @@ def classify_pitch(pt):
     return None
 
 # =============================
-# Build pitch table
+# Inline Mix Builder
+# =============================
+def build_inline_mix(df, side):
+    g = df[df["stand"] == side].dropna(subset=["pitch_type", "release_speed"])
+    if g.empty:
+        return None
+
+    mix = (
+        g.groupby("pitch_type")
+        .agg(n=("pitch_type", "size"),
+             mph=("release_speed", "mean"))
+        .reset_index()
+    )
+
+    total = mix["n"].sum()
+    mix["pct"] = (mix["n"] / total * 100).round(1)
+    mix["mph"] = mix["mph"].round(0)
+
+    mix = mix.sort_values("pct", ascending=False)
+
+    parts = []
+    for _, r in mix.iterrows():
+        parts.append(f"{r['pitch_type']} {r['pct']}% ({int(r['mph'])})")
+
+    return " | ".join(parts)
+
+# =============================
+# Pitch Table Builder (unchanged logic)
 # =============================
 def build_pitch_table(df, side):
 
@@ -167,20 +194,16 @@ def build_pitch_table(df, side):
 
         summary = (
             g.groupby("group")
-            .agg(
-                n=("group", "size"),
-                mph_list=("release_speed", list)
-            )
+            .agg(n=("group", "size"),
+                 mph_list=("release_speed", list))
             .reset_index()
         )
 
         summary["pct"] = (summary["n"] / total * 100).round(1)
 
-        data = {
-            "Fastball": "—",
-            "Breaking": "—",
-            "Offspeed": "—"
-        }
+        data = {"Fastball": "—",
+                "Breaking": "—",
+                "Offspeed": "—"}
 
         pct_dict = {}
 
@@ -189,7 +212,6 @@ def build_pitch_table(df, side):
             velocities = np.array(r["mph_list"])
             grp = r["group"]
 
-            # Cluster logic
             if len(velocities) >= 15:
                 lower = int(round(np.percentile(velocities, 10)))
                 upper = int(round(np.percentile(velocities, 90)))
@@ -204,7 +226,6 @@ def build_pitch_table(df, side):
             data[grp] = label
             pct_dict[grp] = pct
 
-        # Determine dominant pitch (>=10% above next)
         if pct_dict:
             sorted_groups = sorted(pct_dict.items(), key=lambda x: x[1], reverse=True)
             if len(sorted_groups) > 1:
@@ -230,35 +251,6 @@ def build_pitch_table(df, side):
     return out, dominance_tracker
 
 # =============================
-# Structural Flags
-# =============================
-def build_structure_flags(dominance_tracker):
-
-    early = {"0-0", "1-0", "0-1"}
-    two_strike = {"0-2", "1-2", "2-2"}
-    full = {"3-2"}
-
-    def most_common(counts):
-        vals = [dominance_tracker[c] for c in counts if c in dominance_tracker]
-        if not vals:
-            return None
-        return max(set(vals), key=vals.count)
-
-    flags = []
-    early_flag = most_common(early)
-    two_flag = most_common(two_strike)
-    full_flag = most_common(full)
-
-    if early_flag:
-        flags.append(f"• Early Counts: {early_flag}")
-    if two_flag:
-        flags.append(f"• 2-Strike: {two_flag}")
-    if full_flag:
-        flags.append(f"• Full Count: {full_flag}")
-
-    return flags
-
-# =============================
 # Controls
 # =============================
 c1, c2, c3 = st.columns([3, 3, 2])
@@ -272,17 +264,8 @@ with c3:
 if not st.button("Run Matchup", use_container_width=True):
     st.stop()
 
-try:
-    away_f, away_l, away_name = resolve_pitcher(away, season, "Away")
-except ValueError:
-    st.error("Away pitcher not found — check spelling or season availability.")
-    st.stop()
-
-try:
-    home_f, home_l, home_name = resolve_pitcher(home, season, "Home")
-except ValueError:
-    st.error("Home pitcher not found — check spelling or season availability.")
-    st.stop()
+away_f, away_l, away_name = resolve_pitcher(away, season, "Away")
+home_f, home_l, home_name = resolve_pitcher(home, season, "Home")
 
 away_df = get_pitcher_data(away_f, away_l, season)
 home_df = get_pitcher_data(home_f, home_l, season)
@@ -313,15 +296,14 @@ for tab, segment in zip(tabs, split(away_df).keys()):
                 label = "vs LHB" if side == "L" else "vs RHB"
                 st.markdown(f"### {label}")
 
-                table, dominance = build_pitch_table(df, side)
-                flags = build_structure_flags(dominance)
-
-                if flags:
+                mix_line = build_inline_mix(df, side)
+                if mix_line:
                     st.markdown(
-                        "<div class='dk-flags'>" + "<br>".join(flags) + "</div>",
+                        f"<div class='dk-mix'>Mix: {mix_line}</div>",
                         unsafe_allow_html=True,
                     )
 
+                table, dominance = build_pitch_table(df, side)
                 st.markdown(
                     table.to_html(index=False, classes="dk-table", escape=False),
                     unsafe_allow_html=True,
