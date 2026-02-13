@@ -20,7 +20,7 @@ st.markdown(
 )
 
 # =============================
-# Global CSS (tight + cleaner mix)
+# Global CSS (hierarchy fixed)
 # =============================
 TABLE_CSS = """
 <style>
@@ -37,30 +37,29 @@ TABLE_CSS = """
     text-align: center;
 }
 
+/* All cells readable */
 .dk-table td {
-    color: rgba(255,255,255,0.75);
+    color: #ffffff;
 }
 
 .dk-table th:first-child,
 .dk-table td:first-child {
     text-align: left;
     width: 60px;
-    color: #ffffff;
     font-weight: 600;
 }
 
 .dk-table th {
     background: rgba(255,255,255,0.08);
     font-weight: 600;
-    color: rgba(255,255,255,0.85);
 }
 
 .dk-table tbody tr:nth-child(even) td {
     background: rgba(255,255,255,0.04);
 }
 
+/* Dominant pitch subtle emphasis */
 .dk-fav {
-    color: #ffffff;
     font-weight: 600;
 }
 
@@ -74,13 +73,12 @@ TABLE_CSS = """
     margin-bottom: 6px;
     line-height: 1.4;
     font-size: 12px;
-    color: rgba(255,255,255,0.85);
 }
 
 .dk-mix {
     font-size: 12px;
     margin-bottom: 8px;
-    color: rgba(255,255,255,0.65);
+    opacity: 0.75;
 }
 </style>
 """
@@ -248,35 +246,6 @@ def build_pitch_table(df, side):
     return out, dominance_tracker
 
 # =============================
-# Structural Flags
-# =============================
-def build_structure_flags(dominance_tracker):
-
-    early = {"0-0", "1-0", "0-1"}
-    two_strike = {"0-2", "1-2", "2-2"}
-    full = {"3-2"}
-
-    def most_common(counts):
-        vals = [dominance_tracker[c] for c in counts if c in dominance_tracker]
-        if not vals:
-            return None
-        return max(set(vals), key=vals.count)
-
-    flags = []
-    early_flag = most_common(early)
-    two_flag = most_common(two_strike)
-    full_flag = most_common(full)
-
-    if early_flag:
-        flags.append(f"• Early Counts: {early_flag}")
-    if two_flag:
-        flags.append(f"• 2-Strike: {two_flag}")
-    if full_flag:
-        flags.append(f"• Full Count: {full_flag}")
-
-    return flags
-
-# =============================
 # Controls
 # =============================
 c1, c2, c3 = st.columns([3, 3, 2])
@@ -329,15 +298,7 @@ for tab, segment in zip(tabs, split(away_df).keys()):
                         unsafe_allow_html=True,
                     )
 
-                table, dominance = build_pitch_table(df, side)
-                flags = build_structure_flags(dominance)
-
-                if flags:
-                    st.markdown(
-                        "<div class='dk-flags'>" + "<br>".join(flags) + "</div>",
-                        unsafe_allow_html=True,
-                    )
-
+                table, _ = build_pitch_table(df, side)
                 st.markdown(
                     table.to_html(index=False, classes="dk-table", escape=False),
                     unsafe_allow_html=True,
