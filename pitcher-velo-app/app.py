@@ -57,6 +57,7 @@ TABLE_CSS = """
     background: rgba(255,255,255,0.04);
 }
 
+/* Dominant pill */
 .dk-fav {
     font-weight: 600;
     background-color: rgba(255,255,255,0.12);
@@ -122,7 +123,33 @@ def resolve_pitcher(name, season, role):
     return next(v for v in valid if v[2] == choice)
 
 # =============================
-# Build pitch table (dominant pitch band logic)
+# Pitch group definitions (FIXED)
+# =============================
+FASTBALLS = {"FF", "SI", "FC"}
+BREAKING = {"SL", "CU", "KC", "SV", "ST"}
+OFFSPEED = {"CH", "FS", "FO"}
+
+# =============================
+# Inline Mix (percent only)
+# =============================
+def build_inline_mix(df, side):
+    g = df[df["stand"] == side].dropna(subset=["pitch_type"])
+    if g.empty:
+        return None
+
+    mix = g.groupby("pitch_type").size().reset_index(name="n")
+    total = mix["n"].sum()
+    mix["pct"] = (mix["n"] / total * 100).round(0)
+    mix = mix.sort_values("pct", ascending=False)
+
+    parts = []
+    for _, r in mix.iterrows():
+        parts.append(f"{r['pitch_type']} {int(r['pct'])}%")
+
+    return " | ".join(parts)
+
+# =============================
+# Pitch Table Builder
 # =============================
 def build_pitch_table(df, side):
 
@@ -146,12 +173,8 @@ def build_pitch_table(df, side):
 
         summary["pct"] = (summary["n"] / total * 100).round(0)
 
-        data = {"Fastball": "—",
-                "Breaking": "—",
-                "Offspeed": "—"}
-
         group_totals = {"Fastball": 0, "Breaking": 0, "Offspeed": 0}
-        dominant_pitch = {"Fastball": None, "Breaking": None, "Offspeed": None}
+        dominant_velos = {"Fastball": None, "Breaking": None, "Offspeed": None}
         dominant_pct = {"Fastball": 0, "Breaking": 0, "Offspeed": 0}
 
         for _, r in summary.iterrows():
@@ -172,11 +195,13 @@ def build_pitch_table(df, side):
 
             if pct > dominant_pct[group]:
                 dominant_pct[group] = pct
-                dominant_pitch[group] = velocities
+                dominant_velos[group] = velocities
 
-        for group in data.keys():
+        row_data = {"Count": count}
+
+        for group in ["Fastball", "Breaking", "Offspeed"]:
             if group_totals[group] > 0:
-                velocities = dominant_pitch[group]
+                velocities = dominant_velos[group]
                 pct = group_totals[group]
 
                 if len(velocities) >= 15:
@@ -188,18 +213,19 @@ def build_pitch_table(df, side):
                     upper = int(round(mean + 1))
 
                 cluster = f"{lower}-{upper}"
-                data[group] = f"{pct}% ({cluster})"
+                label = f"{pct}% ({cluster})"
+                row_data[group] = label
+            else:
+                row_data[group] = "—"
 
         # Determine dominant group
         sorted_groups = sorted(group_totals.items(), key=lambda x: x[1], reverse=True)
         if len(sorted_groups) > 1:
             top, second = sorted_groups[0], sorted_groups[1]
             if top[1] >= second[1] + 10:
-                data[top[0]] = f"<span class='dk-fav'>{data[top[0]]}</span>"
+                row_data[top[0]] = f"<span class='dk-fav'>{row_data[top[0]]}</span>"
 
-        row = {"Count": count}
-        row.update(data)
-        rows.append(row)
+        rows.append(row_data)
 
     out = pd.DataFrame(rows)
     if out.empty:
@@ -243,6 +269,13 @@ for name, df, role in [
     for side in ["L", "R"]:
         label = "vs LHB" if side == "L" else "vs RHB"
         st.markdown(f"### {label}")
+
+        mix_line = build_inline_mix(df, side)
+        if mix_line:
+            st.markdown(
+                f"<div class='dk-mix'>Mix: {mix_line}</div>",
+                unsafe_allow_html=True,
+            )
 
         table = build_pitch_table(df, side)
         st.markdown(
