@@ -11,10 +11,17 @@ from data import get_pitcher_data
 # =============================
 st.set_page_config(page_title="Pitch Tendencies", layout="wide")
 
+# =============================
+# Title (NO markdown header)
+# =============================
 st.markdown(
     """
-    # Pitch Tendencies
-    *By count & split*
+    <div style="font-size:30px; font-weight:700;">
+        Pitch Tendencies
+    </div>
+    <div style="opacity:0.6; margin-top:4px; margin-bottom:18px;">
+        By count & split
+    </div>
     """,
     unsafe_allow_html=True,
 )
@@ -57,7 +64,6 @@ TABLE_CSS = """
     background: rgba(255,255,255,0.04);
 }
 
-/* Dominant pill */
 .dk-fav {
     font-weight: 600;
     background-color: rgba(255,255,255,0.12);
@@ -67,8 +73,8 @@ TABLE_CSS = """
 
 .dk-subtitle {
     opacity: 0.6;
-    margin-top: -6px;
-    margin-bottom: 8px;
+    margin-top: 4px;
+    margin-bottom: 12px;
 }
 
 .dk-mix {
@@ -122,16 +128,10 @@ def resolve_pitcher(name, season, role):
     choice = st.radio(f"Select {role} Pitcher", [v[2] for v in valid])
     return next(v for v in valid if v[2] == choice)
 
-# =============================
-# Pitch group definitions
-# =============================
 FASTBALLS = {"FF", "SI", "FC"}
 BREAKING = {"SL", "CU", "KC", "SV", "ST"}
 OFFSPEED = {"CH", "FS", "FO"}
 
-# =============================
-# Inline Mix
-# =============================
 def build_inline_mix(df, side):
     g = df[df["stand"] == side].dropna(subset=["pitch_type"])
     if g.empty:
@@ -148,9 +148,6 @@ def build_inline_mix(df, side):
 
     return " | ".join(parts)
 
-# =============================
-# Pitch Table Builder
-# =============================
 def build_pitch_table(df, side):
 
     rows = []
@@ -218,7 +215,6 @@ def build_pitch_table(df, side):
             else:
                 row_data[group] = "—"
 
-        # Highlight dominant group
         sorted_groups = sorted(group_totals.items(), key=lambda x: x[1], reverse=True)
         if len(sorted_groups) > 1:
             top, second = sorted_groups[0], sorted_groups[1]
@@ -260,18 +256,20 @@ for name, df, role in [
     (away_name, away_df, "Away"),
     (home_name, home_df, "Home"),
 ]:
-    st.markdown(f"## {name}")
     st.markdown(
-        f'<div class="dk-subtitle">{role} Pitcher • All • {season}</div>',
-        unsafe_allow_html=True,
+        f"<div style='font-size:24px; font-weight:700; margin-top:10px;'>{name}</div>",
+        unsafe_allow_html=True
+    )
+    st.markdown(
+        f"<div class='dk-subtitle'>{role} Pitcher • All • {season}</div>",
+        unsafe_allow_html=True
     )
 
     for side in ["L", "R"]:
         label = "vs LHB" if side == "L" else "vs RHB"
 
-        # Clean section label (no anchor icon)
         st.markdown(
-            f"<div style='font-weight:600; font-size:15px; margin-top:8px;'>{label}</div>",
+            f"<div style='font-weight:600; font-size:15px; margin-top:10px;'>{label}</div>",
             unsafe_allow_html=True
         )
 
@@ -288,5 +286,5 @@ for name, df, role in [
             unsafe_allow_html=True,
         )
 
-    st.divider()
+    st.markdown("<hr style='opacity:0.2;'>", unsafe_allow_html=True)
 
