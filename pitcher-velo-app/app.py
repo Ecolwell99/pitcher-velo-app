@@ -12,11 +12,12 @@ st.set_page_config(page_title="Pitcher Pitch Profiles", layout="wide")
 
 st.markdown(
     """
-    # Pitcher Pitch Profiles
-    *Pitch selection and velocity by count & handedness*
+    # Pitch Tendencies
+    *By count & split*
     """,
     unsafe_allow_html=True,
 )
+
 
 # =============================
 # Global CSS (TIGHT + COUNT FIX)
@@ -324,4 +325,5 @@ for tab, segment in zip(tabs, split(away_df).keys()):
                 )
 
             st.divider()
+
 
