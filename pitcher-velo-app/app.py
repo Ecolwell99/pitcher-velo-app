@@ -20,7 +20,7 @@ st.markdown(
 )
 
 # =============================
-# Global CSS (tight layout)
+# Global CSS (tight + cleaner mix)
 # =============================
 TABLE_CSS = """
 <style>
@@ -79,8 +79,8 @@ TABLE_CSS = """
 
 .dk-mix {
     font-size: 12px;
-    margin-bottom: 6px;
-    color: rgba(255,255,255,0.85);
+    margin-bottom: 8px;
+    color: rgba(255,255,255,0.65);
 }
 </style>
 """
@@ -145,34 +145,31 @@ def classify_pitch(pt):
     return None
 
 # =============================
-# Inline Mix Builder
+# Inline Mix (percent only)
 # =============================
 def build_inline_mix(df, side):
-    g = df[df["stand"] == side].dropna(subset=["pitch_type", "release_speed"])
+    g = df[df["stand"] == side].dropna(subset=["pitch_type"])
     if g.empty:
         return None
 
     mix = (
         g.groupby("pitch_type")
-        .agg(n=("pitch_type", "size"),
-             mph=("release_speed", "mean"))
+        .agg(n=("pitch_type", "size"))
         .reset_index()
     )
 
     total = mix["n"].sum()
-    mix["pct"] = (mix["n"] / total * 100).round(1)
-    mix["mph"] = mix["mph"].round(0)
-
+    mix["pct"] = (mix["n"] / total * 100).round(0)
     mix = mix.sort_values("pct", ascending=False)
 
     parts = []
     for _, r in mix.iterrows():
-        parts.append(f"{r['pitch_type']} {r['pct']}% ({int(r['mph'])})")
+        parts.append(f"{r['pitch_type']} {int(r['pct'])}%")
 
     return " | ".join(parts)
 
 # =============================
-# Pitch Table Builder (unchanged logic)
+# Pitch Table Builder
 # =============================
 def build_pitch_table(df, side):
 
@@ -251,6 +248,35 @@ def build_pitch_table(df, side):
     return out, dominance_tracker
 
 # =============================
+# Structural Flags
+# =============================
+def build_structure_flags(dominance_tracker):
+
+    early = {"0-0", "1-0", "0-1"}
+    two_strike = {"0-2", "1-2", "2-2"}
+    full = {"3-2"}
+
+    def most_common(counts):
+        vals = [dominance_tracker[c] for c in counts if c in dominance_tracker]
+        if not vals:
+            return None
+        return max(set(vals), key=vals.count)
+
+    flags = []
+    early_flag = most_common(early)
+    two_flag = most_common(two_strike)
+    full_flag = most_common(full)
+
+    if early_flag:
+        flags.append(f"• Early Counts: {early_flag}")
+    if two_flag:
+        flags.append(f"• 2-Strike: {two_flag}")
+    if full_flag:
+        flags.append(f"• Full Count: {full_flag}")
+
+    return flags
+
+# =============================
 # Controls
 # =============================
 c1, c2, c3 = st.columns([3, 3, 2])
@@ -304,6 +330,14 @@ for tab, segment in zip(tabs, split(away_df).keys()):
                     )
 
                 table, dominance = build_pitch_table(df, side)
+                flags = build_structure_flags(dominance)
+
+                if flags:
+                    st.markdown(
+                        "<div class='dk-flags'>" + "<br>".join(flags) + "</div>",
+                        unsafe_allow_html=True,
+                    )
+
                 st.markdown(
                     table.to_html(index=False, classes="dk-table", escape=False),
                     unsafe_allow_html=True,
