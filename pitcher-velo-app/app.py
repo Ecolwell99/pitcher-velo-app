@@ -20,7 +20,7 @@ st.markdown(
 )
 
 # =============================
-# Global CSS (balanced hierarchy)
+# Global CSS (clean + strong hierarchy)
 # =============================
 TABLE_CSS = """
 <style>
@@ -53,16 +53,12 @@ TABLE_CSS = """
     font-weight: 600;
 }
 
-.dk-table tbody tr:nth-child(even) td {
-    background: rgba(255,255,255,0.04);
-}
-
-/* Subtle neutral dominant highlight */
+/* Dominant pitch pill highlight */
 .dk-fav {
     font-weight: 600;
-    background-color: rgba(255,255,255,0.06);
-    border-radius: 3px;
-    padding: 2px 4px;
+    background-color: rgba(255,255,255,0.12);
+    border-radius: 8px;
+    padding: 2px 8px;
 }
 
 .dk-subtitle {
@@ -87,7 +83,7 @@ TABLE_CSS = """
 st.markdown(TABLE_CSS, unsafe_allow_html=True)
 
 # =============================
-# Name normalization
+# Helpers
 # =============================
 def normalize_name(name):
     name = unicodedata.normalize("NFKD", name)
@@ -128,6 +124,9 @@ def resolve_pitcher(name, season, role):
     choice = st.radio(f"Select {role} Pitcher", [v[2] for v in valid])
     return next(v for v in valid if v[2] == choice)
 
+# =============================
+# Pitch group mapping
+# =============================
 FASTBALLS = {"FF", "SI", "FC"}
 BREAKING = {"SL", "CU", "KC", "SV", "ST"}
 OFFSPEED = {"CH", "FS", "FO"}
@@ -141,19 +140,18 @@ def classify_pitch(pt):
         return "Offspeed"
     return None
 
+# =============================
+# Inline Mix (rounded % only)
+# =============================
 def build_inline_mix(df, side):
     g = df[df["stand"] == side].dropna(subset=["pitch_type"])
     if g.empty:
         return None
 
-    mix = (
-        g.groupby("pitch_type")
-        .agg(n=("pitch_type", "size"))
-        .reset_index()
-    )
-
+    mix = g.groupby("pitch_type").size().reset_index(name="n")
     total = mix["n"].sum()
     mix["pct"] = (mix["n"] / total * 100).round(0)
+
     mix = mix.sort_values("pct", ascending=False)
 
     parts = []
@@ -162,6 +160,9 @@ def build_inline_mix(df, side):
 
     return " | ".join(parts)
 
+# =============================
+# Pitch Table Builder
+# =============================
 def build_pitch_table(df, side):
 
     rows = []
@@ -187,7 +188,7 @@ def build_pitch_table(df, side):
             .reset_index()
         )
 
-        summary["pct"] = (summary["n"] / total * 100).round(1)
+        summary["pct"] = (summary["n"] / total * 100).round(0)
 
         data = {"Fastball": "—",
                 "Breaking": "—",
@@ -196,7 +197,7 @@ def build_pitch_table(df, side):
         pct_dict = {}
 
         for _, r in summary.iterrows():
-            pct = r["pct"]
+            pct = int(r["pct"])
             velocities = np.array(r["mph_list"])
             grp = r["group"]
 
@@ -229,14 +230,12 @@ def build_pitch_table(df, side):
 
     out = pd.DataFrame(rows)
     if out.empty:
-        return out, {}
+        return out
 
     out["s"] = out["Count"].apply(
         lambda x: int(x.split("-")[0]) * 10 + int(x.split("-")[1])
     )
-    out = out.sort_values("s").drop(columns="s").reset_index(drop=True)
-
-    return out, dominance_tracker
+    return out.sort_values("s").drop(columns="s").reset_index(drop=True)
 
 # =============================
 # Controls
@@ -258,36 +257,32 @@ home_f, home_l, home_name = resolve_pitcher(home, season, "Home")
 away_df = get_pitcher_data(away_f, away_l, season)
 home_df = get_pitcher_data(home_f, home_l, season)
 
-tabs = st.tabs(["All"])
+for name, df, role in [
+    (away_name, away_df, "Away"),
+    (home_name, home_df, "Home"),
+]:
+    st.markdown(f"## {name}")
+    st.markdown(
+        f'<div class="dk-subtitle">{role} Pitcher • All • {season}</div>',
+        unsafe_allow_html=True,
+    )
 
-for tab in tabs:
-    with tab:
-        for name, df, role in [
-            (away_name, away_df, "Away"),
-            (home_name, home_df, "Home"),
-        ]:
-            st.markdown(f"## {name}")
+    for side in ["L", "R"]:
+        label = "vs LHB" if side == "L" else "vs RHB"
+        st.markdown(f"### {label}")
+
+        mix_line = build_inline_mix(df, side)
+        if mix_line:
             st.markdown(
-                f'<div class="dk-subtitle">{role} Pitcher • All • {season}</div>',
+                f"<div class='dk-mix'>Mix: {mix_line}</div>",
                 unsafe_allow_html=True,
             )
 
-            for side in ["L", "R"]:
-                label = "vs LHB" if side == "L" else "vs RHB"
-                st.markdown(f"### {label}")
+        table = build_pitch_table(df, side)
+        st.markdown(
+            table.to_html(index=False, classes="dk-table", escape=False),
+            unsafe_allow_html=True,
+        )
 
-                mix_line = build_inline_mix(df, side)
-                if mix_line:
-                    st.markdown(
-                        f"<div class='dk-mix'>Mix: {mix_line}</div>",
-                        unsafe_allow_html=True,
-                    )
-
-                table, _ = build_pitch_table(df, side)
-                st.markdown(
-                    table.to_html(index=False, classes="dk-table", escape=False),
-                    unsafe_allow_html=True,
-                )
-
-            st.divider()
+    st.divider()
 
