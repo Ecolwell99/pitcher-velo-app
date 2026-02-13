@@ -123,14 +123,14 @@ def resolve_pitcher(name, season, role):
     return next(v for v in valid if v[2] == choice)
 
 # =============================
-# Pitch group definitions (FIXED)
+# Pitch group definitions
 # =============================
 FASTBALLS = {"FF", "SI", "FC"}
 BREAKING = {"SL", "CU", "KC", "SV", "ST"}
 OFFSPEED = {"CH", "FS", "FO"}
 
 # =============================
-# Inline Mix (percent only)
+# Inline Mix
 # =============================
 def build_inline_mix(df, side):
     g = df[df["stand"] == side].dropna(subset=["pitch_type"])
@@ -218,7 +218,7 @@ def build_pitch_table(df, side):
             else:
                 row_data[group] = "—"
 
-        # Determine dominant group
+        # Highlight dominant group
         sorted_groups = sorted(group_totals.items(), key=lambda x: x[1], reverse=True)
         if len(sorted_groups) > 1:
             top, second = sorted_groups[0], sorted_groups[1]
@@ -268,7 +268,12 @@ for name, df, role in [
 
     for side in ["L", "R"]:
         label = "vs LHB" if side == "L" else "vs RHB"
-        st.markdown(f"### {label}")
+
+        # Clean section label (no anchor icon)
+        st.markdown(
+            f"<div style='font-weight:600; font-size:15px; margin-top:8px;'>{label}</div>",
+            unsafe_allow_html=True
+        )
 
         mix_line = build_inline_mix(df, side)
         if mix_line:
