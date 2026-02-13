@@ -121,6 +121,25 @@ def resolve_pitcher(name, season, role):
     choice = st.radio(f"Select {role} Pitcher", [v[2] for v in valid])
     return next(v for v in valid if v[2] == choice)
 
+# =============================
+# Get Current Team
+# =============================
+def get_current_team(df):
+    if df.empty:
+        return None
+
+    if "home_team" in df.columns and "away_team" in df.columns:
+        home_counts = df["home_team"].value_counts()
+        away_counts = df["away_team"].value_counts()
+        combined = pd.concat([home_counts, away_counts])
+        if not combined.empty:
+            return combined.idxmax()
+
+    if "team" in df.columns:
+        return df["team"].mode().iloc[0]
+
+    return None
+
 FASTBALLS = {"FF", "SI", "FC"}
 BREAKING = {"SL", "CU", "KC", "SV", "ST"}
 OFFSPEED = {"CH", "FS", "FO"}
@@ -141,10 +160,9 @@ def build_inline_mix(df, side):
     return " | ".join(f"{r['pitch_type']} {int(r['pct'])}%" for _, r in mix.iterrows())
 
 # =============================
-# Structural Flags (RESTORED)
+# Structural Flags
 # =============================
 def build_structure_flags(df, side):
-
     dominance = {}
 
     for count, g in df[df["stand"] == side].groupby("count"):
@@ -159,38 +177,30 @@ def build_structure_flags(df, side):
         top_pitch = counts.idxmax()
         top_pct = counts.max()
 
-        if top_pitch in FASTBALLS:
-            group = "Fastball"
-        elif top_pitch in BREAKING:
-            group = "Breaking"
-        elif top_pitch in OFFSPEED:
-            group = "Offspeed"
-        else:
-            continue
-
-        dominance[count] = (group, top_pct)
+        if pt_in_group := (
+            "Fastball" if top_pitch in FASTBALLS else
+            "Breaking" if top_pitch in BREAKING else
+            "Offspeed" if top_pitch in OFFSPEED else None
+        ):
+            dominance[count] = pt_in_group
 
     early = {"0-0", "1-0", "0-1"}
     two_strike = {"0-2", "1-2", "2-2"}
     full = {"3-2"}
 
     def most_common(counts):
-        groups = [dominance[c][0] for c in counts if c in dominance]
-        if not groups:
+        vals = [dominance[c] for c in counts if c in dominance]
+        if not vals:
             return None
-        return max(set(groups), key=groups.count)
+        return max(set(vals), key=vals.count)
 
     flags = []
-    early_flag = most_common(early)
-    two_flag = most_common(two_strike)
-    full_flag = most_common(full)
-
-    if early_flag:
-        flags.append(f"• Early Counts: {early_flag}")
-    if two_flag:
-        flags.append(f"• 2-Strike: {two_flag}")
-    if full_flag:
-        flags.append(f"• Full Count: {full_flag}")
+    if e := most_common(early):
+        flags.append(f"• Early Counts: {e}")
+    if t := most_common(two_strike):
+        flags.append(f"• 2-Strike: {t}")
+    if f := most_common(full):
+        flags.append(f"• Full Count: {f}")
 
     return flags
 
@@ -198,7 +208,6 @@ def build_structure_flags(df, side):
 # Pitch Table
 # =============================
 def build_pitch_table(df, side):
-
     rows = []
 
     for count, g in df[df["stand"] == side].groupby("count"):
@@ -317,12 +326,16 @@ for tab, segment in zip(tabs, split(away_df).keys()):
             (away_name, split(away_df)[segment], "Away"),
             (home_name, split(home_df)[segment], "Home"),
         ]:
+
+            team = get_current_team(df)
+
             st.markdown(
                 f"<div style='font-size:24px; font-weight:700; margin-top:10px;'>{name}</div>",
                 unsafe_allow_html=True
             )
+
             st.markdown(
-                f"<div class='dk-subtitle'>{role} Pitcher • {segment} • {season}</div>",
+                f"<div class='dk-subtitle'>{team} • {role} • {segment} • {season}</div>",
                 unsafe_allow_html=True
             )
 
