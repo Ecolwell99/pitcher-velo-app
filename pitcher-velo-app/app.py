@@ -20,7 +20,7 @@ st.markdown(
 )
 
 # =============================
-# Global CSS (hierarchy fixed)
+# Global CSS (balanced hierarchy)
 # =============================
 TABLE_CSS = """
 <style>
@@ -37,7 +37,6 @@ TABLE_CSS = """
     text-align: center;
 }
 
-/* All cells readable */
 .dk-table td {
     color: #ffffff;
 }
@@ -58,9 +57,12 @@ TABLE_CSS = """
     background: rgba(255,255,255,0.04);
 }
 
-/* Dominant pitch subtle emphasis */
+/* Subtle neutral dominant highlight */
 .dk-fav {
     font-weight: 600;
+    background-color: rgba(255,255,255,0.06);
+    border-radius: 3px;
+    padding: 2px 4px;
 }
 
 .dk-subtitle {
@@ -126,9 +128,6 @@ def resolve_pitcher(name, season, role):
     choice = st.radio(f"Select {role} Pitcher", [v[2] for v in valid])
     return next(v for v in valid if v[2] == choice)
 
-# =============================
-# Pitch group mapping
-# =============================
 FASTBALLS = {"FF", "SI", "FC"}
 BREAKING = {"SL", "CU", "KC", "SV", "ST"}
 OFFSPEED = {"CH", "FS", "FO"}
@@ -142,9 +141,6 @@ def classify_pitch(pt):
         return "Offspeed"
     return None
 
-# =============================
-# Inline Mix (percent only)
-# =============================
 def build_inline_mix(df, side):
     g = df[df["stand"] == side].dropna(subset=["pitch_type"])
     if g.empty:
@@ -166,9 +162,6 @@ def build_inline_mix(df, side):
 
     return " | ".join(parts)
 
-# =============================
-# Pitch Table Builder
-# =============================
 def build_pitch_table(df, side):
 
     rows = []
@@ -265,25 +258,17 @@ home_f, home_l, home_name = resolve_pitcher(home, season, "Home")
 away_df = get_pitcher_data(away_f, away_l, season)
 home_df = get_pitcher_data(home_f, home_l, season)
 
-def split(df):
-    return {
-        "All": df,
-        "Early (1–2)": df[df["inning"].isin([1, 2])],
-        "Middle (3–4)": df[df["inning"].isin([3, 4])],
-        "Late (5+)": df[df["inning"] >= 5],
-    }
+tabs = st.tabs(["All"])
 
-tabs = st.tabs(["All", "Early (1–2)", "Middle (3–4)", "Late (5+)"])
-
-for tab, segment in zip(tabs, split(away_df).keys()):
+for tab in tabs:
     with tab:
         for name, df, role in [
-            (away_name, split(away_df)[segment], "Away"),
-            (home_name, split(home_df)[segment], "Home"),
+            (away_name, away_df, "Away"),
+            (home_name, home_df, "Home"),
         ]:
             st.markdown(f"## {name}")
             st.markdown(
-                f'<div class="dk-subtitle">{role} Pitcher • {segment} • {season}</div>',
+                f'<div class="dk-subtitle">{role} Pitcher • All • {season}</div>',
                 unsafe_allow_html=True,
             )
 
