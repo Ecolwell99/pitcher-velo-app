@@ -2,13 +2,14 @@ import streamlit as st
 import pandas as pd
 import re
 import unicodedata
+import numpy as np
 from pybaseball import chadwick_register
 from data import get_pitcher_data
 
 # =============================
 # Page setup
 # =============================
-st.set_page_config(page_title="Pitcher Pitch Profiles", layout="wide")
+st.set_page_config(page_title="Pitch Tendencies", layout="wide")
 
 st.markdown(
     """
@@ -18,9 +19,8 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-
 # =============================
-# Global CSS (TIGHT + COUNT FIX)
+# Global CSS (tight + clean)
 # =============================
 TABLE_CSS = """
 <style>
@@ -37,12 +37,10 @@ TABLE_CSS = """
     text-align: center;
 }
 
-/* Slightly muted default cells */
 .dk-table td {
     color: rgba(255,255,255,0.75);
 }
 
-/* Count column emphasized */
 .dk-table th:first-child,
 .dk-table td:first-child {
     text-align: left;
@@ -61,7 +59,6 @@ TABLE_CSS = """
     background: rgba(255,255,255,0.04);
 }
 
-/* Dominant pitch */
 .dk-fav {
     color: #ffffff;
     font-weight: 600;
@@ -170,45 +167,51 @@ def build_pitch_table(df, side):
 
         summary = (
             g.groupby("group")
-            .agg(n=("group", "size"),
-                 mph=("release_speed", "mean"))
+            .agg(
+                n=("group", "size"),
+                mph_list=("release_speed", list)
+            )
             .reset_index()
         )
 
         summary["pct"] = (summary["n"] / total * 100).round(1)
-        summary["mph"] = summary["mph"].round(1)
 
         data = {
-            "Fastball (% | MPH)": "—",
-            "Breaking (% | MPH)": "—",
-            "Offspeed (% | MPH)": "—"
+            "Fastball": "—",
+            "Breaking": "—",
+            "Offspeed": "—"
         }
 
         pct_dict = {}
 
         for _, r in summary.iterrows():
             pct = r["pct"]
-            mean_mph = r["mph"]
+            velocities = np.array(r["mph_list"])
             grp = r["group"]
 
-            lower = int(round(mean_mph - 1))
-            upper = int(round(mean_mph + 1))
-            cluster = f"{lower}-{upper}"
+            # Cluster logic
+            if len(velocities) >= 15:
+                lower = int(round(np.percentile(velocities, 10)))
+                upper = int(round(np.percentile(velocities, 90)))
+            else:
+                mean = velocities.mean()
+                lower = int(round(mean - 1))
+                upper = int(round(mean + 1))
 
+            cluster = f"{lower}-{upper}"
             label = f"{pct}% ({cluster})"
 
-            column_name = f"{grp} (% | MPH)"
-            data[column_name] = label
+            data[grp] = label
             pct_dict[grp] = pct
 
+        # Determine dominant pitch (>=10% above next)
         if pct_dict:
             sorted_groups = sorted(pct_dict.items(), key=lambda x: x[1], reverse=True)
             if len(sorted_groups) > 1:
                 top, second = sorted_groups[0], sorted_groups[1]
                 if top[1] >= second[1] + 10:
                     fav = top[0]
-                    fav_col = f"{fav} (% | MPH)"
-                    data[fav_col] = f"<span class='dk-fav'>{data[fav_col]}</span>"
+                    data[fav] = f"<span class='dk-fav'>{data[fav]}</span>"
                     dominance_tracker[count] = fav
 
         row = {"Count": count}
@@ -325,5 +328,4 @@ for tab, segment in zip(tabs, split(away_df).keys()):
                 )
 
             st.divider()
-
 
