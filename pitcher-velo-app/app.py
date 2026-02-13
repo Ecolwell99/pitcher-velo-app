@@ -70,6 +70,11 @@ TABLE_CSS = """
     margin-bottom: 8px;
     opacity: 0.75;
 }
+.dk-flags {
+    font-size: 12px;
+    margin-bottom: 8px;
+    line-height: 1.4;
+}
 </style>
 """
 st.markdown(TABLE_CSS, unsafe_allow_html=True)
@@ -121,7 +126,7 @@ BREAKING = {"SL", "CU", "KC", "SV", "ST"}
 OFFSPEED = {"CH", "FS", "FO"}
 
 # =============================
-# Inline mix
+# Inline Mix
 # =============================
 def build_inline_mix(df, side):
     g = df[df["stand"] == side].dropna(subset=["pitch_type"])
@@ -136,9 +141,64 @@ def build_inline_mix(df, side):
     return " | ".join(f"{r['pitch_type']} {int(r['pct'])}%" for _, r in mix.iterrows())
 
 # =============================
-# Pitch table builder
+# Structural Flags (RESTORED)
+# =============================
+def build_structure_flags(df, side):
+
+    dominance = {}
+
+    for count, g in df[df["stand"] == side].groupby("count"):
+        g = g.dropna(subset=["pitch_type"])
+        if g.empty:
+            continue
+
+        counts = g["pitch_type"].value_counts(normalize=True) * 100
+        if counts.empty:
+            continue
+
+        top_pitch = counts.idxmax()
+        top_pct = counts.max()
+
+        if top_pitch in FASTBALLS:
+            group = "Fastball"
+        elif top_pitch in BREAKING:
+            group = "Breaking"
+        elif top_pitch in OFFSPEED:
+            group = "Offspeed"
+        else:
+            continue
+
+        dominance[count] = (group, top_pct)
+
+    early = {"0-0", "1-0", "0-1"}
+    two_strike = {"0-2", "1-2", "2-2"}
+    full = {"3-2"}
+
+    def most_common(counts):
+        groups = [dominance[c][0] for c in counts if c in dominance]
+        if not groups:
+            return None
+        return max(set(groups), key=groups.count)
+
+    flags = []
+    early_flag = most_common(early)
+    two_flag = most_common(two_strike)
+    full_flag = most_common(full)
+
+    if early_flag:
+        flags.append(f"• Early Counts: {early_flag}")
+    if two_flag:
+        flags.append(f"• 2-Strike: {two_flag}")
+    if full_flag:
+        flags.append(f"• Full Count: {full_flag}")
+
+    return flags
+
+# =============================
+# Pitch Table
 # =============================
 def build_pitch_table(df, side):
+
     rows = []
 
     for count, g in df[df["stand"] == side].groupby("count"):
@@ -241,9 +301,6 @@ home_f, home_l, home_name = resolve_pitcher(home, season, "Home")
 away_df = get_pitcher_data(away_f, away_l, season)
 home_df = get_pitcher_data(home_f, home_l, season)
 
-# =============================
-# Segment Split (RESTORED)
-# =============================
 def split(df):
     return {
         "All": df,
@@ -281,6 +338,13 @@ for tab, segment in zip(tabs, split(away_df).keys()):
                 if mix_line:
                     st.markdown(
                         f"<div class='dk-mix'>Mix: {mix_line}</div>",
+                        unsafe_allow_html=True,
+                    )
+
+                flags = build_structure_flags(df, side)
+                if flags:
+                    st.markdown(
+                        "<div class='dk-flags'>" + "<br>".join(flags) + "</div>",
                         unsafe_allow_html=True,
                     )
 
