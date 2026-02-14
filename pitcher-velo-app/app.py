@@ -144,6 +144,17 @@ def get_mlbam_id(first, last):
     if not rows.empty and "key_mlbam" in rows.columns:
         return rows.iloc[0]["key_mlbam"]
     return None
+def get_pitcher_hand(first, last):
+    rows = REGISTRY[
+        (REGISTRY["name_first"].str.lower() == first.lower()) &
+        (REGISTRY["name_last"].str.lower() == last.lower())
+    ]
+    if not rows.empty and "throws" in rows.columns:
+        hand = rows.iloc[0]["throws"]
+        if hand in ["R", "L"]:
+            return f"{hand}HP"
+    return None
+
 
 def get_current_team(df):
     if df.empty or "game_date" not in df.columns:
@@ -352,8 +363,14 @@ for tab, segment in zip(tabs, split(away_df_full).keys()):
                 )
 
             st.markdown(
-                f"<div class='dk-subtitle'>{team} • {segment} • {season}</div>",
-                unsafe_allow_html=True
+            hand = get_pitcher_hand(first, last)
+            hand_display = f"{hand} • " if hand else ""
+
+            st.markdown(
+                    f"<div class='dk-subtitle'>{team} • {hand_display}{segment} • {season}</div>",
+    unsafe_allow_html=True
+)
+
             )
 
             for side in ["L", "R"]:
@@ -385,6 +402,7 @@ for tab, segment in zip(tabs, split(away_df_full).keys()):
                 )
 
             st.markdown("<hr style='opacity:0.2;'>", unsafe_allow_html=True)
+
 
 
 
