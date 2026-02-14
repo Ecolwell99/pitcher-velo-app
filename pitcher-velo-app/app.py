@@ -138,9 +138,18 @@ def get_mlbam_id(first, last):
     return None
 
 def get_pitcher_hand(first, last):
-    rows = REGISTRY[
-        (REGISTRY["name_first"].str.lower() == first.lower()) &
-        (REGISTRY["name_last"].str.lower() == last.lower())
+    # Normalize name same way as registry
+    full_name_norm = normalize_name(f"{first} {last}")
+
+    rows = REGISTRY[REGISTRY["norm"] == full_name_norm]
+
+    if not rows.empty and "throws" in rows.columns:
+        hand = rows.iloc[0]["throws"]
+        if hand in ["R", "L"]:
+            return f"{hand}HP"
+
+    return None
+
     ]
     if not rows.empty and "throws" in rows.columns:
         hand = rows.iloc[0]["throws"]
@@ -396,4 +405,5 @@ for tab, segment in zip(tabs, split(away_df_full).keys()):
                 )
 
             st.markdown("<hr style='opacity:0.2;'>", unsafe_allow_html=True)
+
 
