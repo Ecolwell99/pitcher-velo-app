@@ -129,28 +129,15 @@ def resolve_pitcher(name, season, role):
     return next(v for v in valid if v[2] == choice)
 
 def get_mlbam_id(first, last):
-    rows = REGISTRY[
-        (REGISTRY["name_first"].str.lower() == first.lower()) &
-        (REGISTRY["name_last"].str.lower() == last.lower())
-    ]
+    full_norm = normalize_name(f"{first} {last}")
+    rows = REGISTRY[REGISTRY["norm"] == full_norm]
     if not rows.empty and "key_mlbam" in rows.columns:
         return rows.iloc[0]["key_mlbam"]
     return None
 
 def get_pitcher_hand(first, last):
-    # Normalize name same way as registry
-    full_name_norm = normalize_name(f"{first} {last}")
-
-    rows = REGISTRY[REGISTRY["norm"] == full_name_norm]
-
-    if not rows.empty and "throws" in rows.columns:
-        hand = rows.iloc[0]["throws"]
-        if hand in ["R", "L"]:
-            return f"{hand}HP"
-
-    return None
-
-    ]
+    full_norm = normalize_name(f"{first} {last}")
+    rows = REGISTRY[REGISTRY["norm"] == full_norm]
     if not rows.empty and "throws" in rows.columns:
         hand = rows.iloc[0]["throws"]
         if hand in ["R", "L"]:
@@ -232,7 +219,6 @@ def build_structure_flags(df, side):
 # =============================
 def build_pitch_table(df, side):
     rows = []
-
     for count, g in df[df["stand"] == side].groupby("count"):
         g = g.dropna(subset=["release_speed", "pitch_type"])
         if g.empty:
@@ -270,7 +256,6 @@ def build_pitch_table(df, side):
                 continue
 
             group_totals[group] += pct
-
             if pct > dominant_pct[group]:
                 dominant_pct[group] = pct
                 dominant_velos[group] = velocities
@@ -281,7 +266,6 @@ def build_pitch_table(df, side):
             if group_totals[group] > 0:
                 velocities = dominant_velos[group]
                 pct = group_totals[group]
-
                 if len(velocities) >= 15:
                     low = int(round(np.percentile(velocities, 10)))
                     high = int(round(np.percentile(velocities, 90)))
@@ -289,7 +273,6 @@ def build_pitch_table(df, side):
                     mean = velocities.mean()
                     low = int(round(mean - 1))
                     high = int(round(mean + 1))
-
                 row_data[group] = f"{pct}% ({low}-{high})"
             else:
                 row_data[group] = "—"
@@ -405,5 +388,3 @@ for tab, segment in zip(tabs, split(away_df_full).keys()):
                 )
 
             st.markdown("<hr style='opacity:0.2;'>", unsafe_allow_html=True)
-
-
