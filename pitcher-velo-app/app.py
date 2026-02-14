@@ -75,16 +75,6 @@ TABLE_CSS = """
     margin-bottom: 8px;
     line-height: 1.4;
 }
-
-/* Clean hyperlink styling */
-.dk-link {
-    color: #ffffff;
-    text-decoration: none;
-}
-.dk-link:hover {
-    text-decoration: none;
-    opacity: 0.85;
-}
 </style>
 """
 st.markdown(TABLE_CSS, unsafe_allow_html=True)
@@ -132,22 +122,13 @@ def resolve_pitcher(name, season, role):
     return next(v for v in valid if v[2] == choice)
 
 # =============================
-# Get MLBAM ID for Savant link
-# =============================
-def get_mlbam_id(first, last):
-    rows = REGISTRY[
-        (REGISTRY["name_first"].str.lower() == first.lower()) &
-        (REGISTRY["name_last"].str.lower() == last.lower())
-    ]
-    if not rows.empty and "key_mlbam" in rows.columns:
-        return rows.iloc[0]["key_mlbam"]
-    return None
-
-# =============================
-# Most Recent Team (full season only)
+# Most Recent Team (FULL SEASON ONLY)
 # =============================
 def get_current_team(df):
-    if df.empty or "game_date" not in df.columns:
+    if df.empty:
+        return None
+
+    if "game_date" not in df.columns:
         return None
 
     latest_row = df.sort_values("game_date", ascending=False).iloc[0]
@@ -161,8 +142,14 @@ def get_current_team(df):
         else:
             return latest_row["home_team"]
 
+    if "team" in df.columns:
+        return latest_row["team"]
+
     return None
 
+# =============================
+# Pitch group definitions
+# =============================
 FASTBALLS = {"FF", "SI", "FC"}
 BREAKING = {"SL", "CU", "KC", "SV", "ST"}
 OFFSPEED = {"CH", "FS", "FO"}
@@ -178,16 +165,65 @@ def build_inline_mix(df, side):
     mix = g.groupby("pitch_type").size().reset_index(name="n")
     total = mix["n"].sum()
     mix["pct"] = (mix["n"] / total * 100).round(0)
-    mix = mix[mix["pct"] >= 2]
     mix = mix.sort_values("pct", ascending=False)
 
+    # Kill <2%
+    mix = mix[mix["pct"] >= 2]
+
     return " | ".join(f"{r['pitch_type']} {int(r['pct'])}%" for _, r in mix.iterrows())
+
+# =============================
+# Structural Flags
+# =============================
+def build_structure_flags(df, side):
+    dominance = {}
+
+    for count, g in df[df["stand"] == side].groupby("count"):
+        g = g.dropna(subset=["pitch_type"])
+        if g.empty:
+            continue
+
+        counts = g["pitch_type"].value_counts(normalize=True) * 100
+        if counts.empty:
+            continue
+
+        top_pitch = counts.idxmax()
+
+        if top_pitch in FASTBALLS:
+            group = "Fastball"
+        elif top_pitch in BREAKING:
+            group = "Breaking"
+        elif top_pitch in OFFSPEED:
+            group = "Offspeed"
+        else:
+            continue
+
+        dominance[count] = group
+
+    early = {"0-0", "1-0", "0-1"}
+    two_strike = {"0-2", "1-2", "2-2"}
+    full = {"3-2"}
+
+    def most_common(counts):
+        vals = [dominance[c] for c in counts if c in dominance]
+        if not vals:
+            return None
+        return max(set(vals), key=vals.count)
+
+    flags = []
+    if e := most_common(early):
+        flags.append(f"• Early Counts: {e}")
+    if t := most_common(two_strike):
+        flags.append(f"• 2-Strike: {t}")
+    if f := most_common(full):
+        flags.append(f"• Full Count: {f}")
+
+    return flags
 
 # =============================
 # Pitch Table
 # =============================
 def build_pitch_table(df, side):
-
     rows = []
 
     for count, g in df[df["stand"] == side].groupby("count"):
@@ -289,12 +325,10 @@ home_f, home_l, home_name = resolve_pitcher(home, season, "Home")
 away_df_full = get_pitcher_data(away_f, away_l, season)
 home_df_full = get_pitcher_data(home_f, home_l, season)
 
+# Compute team ONCE per pitcher (FULL SEASON)
 away_team = get_current_team(away_df_full)
 home_team = get_current_team(home_df_full)
 
-# =============================
-# Segment Split (RESTORED)
-# =============================
 def split(df):
     return {
         "All": df,
@@ -307,31 +341,17 @@ tabs = st.tabs(["All", "Early (1–2)", "Middle (3–4)", "Late (5+)"])
 
 for tab, segment in zip(tabs, split(away_df_full).keys()):
     with tab:
-        for name, df_full, role, team, first, last in [
-            (away_name, away_df_full, "Away", away_team, away_f, away_l),
-            (home_name, home_df_full, "Home", home_team, home_f, home_l),
+        for name, df_full, role, team in [
+            (away_name, away_df_full, "Away", away_team),
+            (home_name, home_df_full, "Home", home_team),
         ]:
 
             df_segment = split(df_full)[segment]
 
-            mlbam_id = get_mlbam_id(first, last)
-
-            if mlbam_id:
-                savant_url = f"https://baseballsavant.mlb.com/savant-player/{mlbam_id}"
-                st.markdown(
-                    f"""
-                    <a href="{savant_url}" target="_blank" class="dk-link">
-                        <div style='font-size:24px; font-weight:700; margin-top:10px;'>{name}</div>
-                    </a>
-                    """,
-                    unsafe_allow_html=True
-                )
-            else:
-                st.markdown(
-                    f"<div style='font-size:24px; font-weight:700; margin-top:10px;'>{name}</div>",
-                    unsafe_allow_html=True
-                )
-
+            st.markdown(
+                f"<div style='font-size:24px; font-weight:700; margin-top:10px;'>{name}</div>",
+                unsafe_allow_html=True
+            )
             st.markdown(
                 f"<div class='dk-subtitle'>{team} • {role} • {segment} • {season}</div>",
                 unsafe_allow_html=True
@@ -366,5 +386,4 @@ for tab, segment in zip(tabs, split(away_df_full).keys()):
                 )
 
             st.markdown("<hr style='opacity:0.2;'>", unsafe_allow_html=True)
-
 
