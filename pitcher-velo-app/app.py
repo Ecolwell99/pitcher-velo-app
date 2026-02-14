@@ -78,15 +78,6 @@ TABLE_CSS = """
 </style>
 """
 st.markdown(TABLE_CSS, unsafe_allow_html=True)
-.dk-link {
-    color: #ffffff;
-    text-decoration: none;
-}
-.dk-link:hover {
-    text-decoration: none;
-    opacity: 0.85;
-}
-
 
 # =============================
 # Helpers
@@ -129,14 +120,6 @@ def resolve_pitcher(name, season, role):
 
     choice = st.radio(f"Select {role} Pitcher", [v[2] for v in valid])
     return next(v for v in valid if v[2] == choice)
-def get_mlbam_id(first, last):
-    rows = REGISTRY[
-        (REGISTRY["name_first"].str.lower() == first.lower()) &
-        (REGISTRY["name_last"].str.lower() == last.lower())
-    ]
-    if not rows.empty and "key_mlbam" in rows.columns:
-        return rows.iloc[0]["key_mlbam"]
-    return None
 
 # =============================
 # Most Recent Team (FULL SEASON ONLY)
@@ -365,23 +348,9 @@ for tab, segment in zip(tabs, split(away_df_full).keys()):
 
             df_segment = split(df_full)[segment]
 
-          mlbam_id = get_mlbam_id(
-    name.split()[0],
-    name.split()[-1]
-)
-
-if mlbam_id:
-    savant_url = f"https://baseballsavant.mlb.com/savant-player/{mlbam_id}"
-    name_html = f"""
-    <a href="{savant_url}" target="_blank" class="dk-link">
-        <div style='font-size:24px; font-weight:700; margin-top:10px;'>{name}</div>
-    </a>
-    """
-else:
-    name_html = f"<div style='font-size:24px; font-weight:700; margin-top:10px;'>{name}</div>"
-
-st.markdown(name_html, unsafe_allow_html=True)
-
+            st.markdown(
+                f"<div style='font-size:24px; font-weight:700; margin-top:10px;'>{name}</div>",
+                unsafe_allow_html=True
             )
             st.markdown(
                 f"<div class='dk-subtitle'>{team} • {role} • {segment} • {season}</div>",
@@ -417,5 +386,4 @@ st.markdown(name_html, unsafe_allow_html=True)
                 )
 
             st.markdown("<hr style='opacity:0.2;'>", unsafe_allow_html=True)
-
 
