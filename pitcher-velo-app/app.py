@@ -122,7 +122,7 @@ def resolve_pitcher(name, season, role):
     return next(v for v in valid if v[2] == choice)
 
 # =============================
-# Most Recent Team Logic
+# Most Recent Team (FULL SEASON ONLY)
 # =============================
 def get_current_team(df):
     if df.empty:
@@ -140,7 +140,6 @@ def get_current_team(df):
             else:
                 return latest_row["away_team"]
         else:
-            # fallback if inning_topbot not present
             return latest_row["home_team"]
 
     if "team" in df.columns:
@@ -156,7 +155,7 @@ BREAKING = {"SL", "CU", "KC", "SV", "ST"}
 OFFSPEED = {"CH", "FS", "FO"}
 
 # =============================
-# Inline Mix (percent only)
+# Inline Mix
 # =============================
 def build_inline_mix(df, side):
     g = df[df["stand"] == side].dropna(subset=["pitch_type"])
@@ -167,6 +166,9 @@ def build_inline_mix(df, side):
     total = mix["n"].sum()
     mix["pct"] = (mix["n"] / total * 100).round(0)
     mix = mix.sort_values("pct", ascending=False)
+
+    # Kill <2%
+    mix = mix[mix["pct"] >= 2]
 
     return " | ".join(f"{r['pitch_type']} {int(r['pct'])}%" for _, r in mix.iterrows())
 
@@ -222,7 +224,6 @@ def build_structure_flags(df, side):
 # Pitch Table
 # =============================
 def build_pitch_table(df, side):
-
     rows = []
 
     for count, g in df[df["stand"] == side].groupby("count"):
@@ -321,8 +322,12 @@ if not st.button("Run Matchup", use_container_width=True):
 away_f, away_l, away_name = resolve_pitcher(away, season, "Away")
 home_f, home_l, home_name = resolve_pitcher(home, season, "Home")
 
-away_df = get_pitcher_data(away_f, away_l, season)
-home_df = get_pitcher_data(home_f, home_l, season)
+away_df_full = get_pitcher_data(away_f, away_l, season)
+home_df_full = get_pitcher_data(home_f, home_l, season)
+
+# Compute team ONCE per pitcher (FULL SEASON)
+away_team = get_current_team(away_df_full)
+home_team = get_current_team(home_df_full)
 
 def split(df):
     return {
@@ -334,20 +339,19 @@ def split(df):
 
 tabs = st.tabs(["All", "Early (1–2)", "Middle (3–4)", "Late (5+)"])
 
-for tab, segment in zip(tabs, split(away_df).keys()):
+for tab, segment in zip(tabs, split(away_df_full).keys()):
     with tab:
-        for name, df, role in [
-            (away_name, split(away_df)[segment], "Away"),
-            (home_name, split(home_df)[segment], "Home"),
+        for name, df_full, role, team in [
+            (away_name, away_df_full, "Away", away_team),
+            (home_name, home_df_full, "Home", home_team),
         ]:
 
-            team = get_current_team(df)
+            df_segment = split(df_full)[segment]
 
             st.markdown(
                 f"<div style='font-size:24px; font-weight:700; margin-top:10px;'>{name}</div>",
                 unsafe_allow_html=True
             )
-
             st.markdown(
                 f"<div class='dk-subtitle'>{team} • {role} • {segment} • {season}</div>",
                 unsafe_allow_html=True
@@ -361,21 +365,21 @@ for tab, segment in zip(tabs, split(away_df).keys()):
                     unsafe_allow_html=True
                 )
 
-                mix_line = build_inline_mix(df, side)
+                mix_line = build_inline_mix(df_segment, side)
                 if mix_line:
                     st.markdown(
                         f"<div class='dk-mix'>Mix: {mix_line}</div>",
                         unsafe_allow_html=True,
                     )
 
-                flags = build_structure_flags(df, side)
+                flags = build_structure_flags(df_segment, side)
                 if flags:
                     st.markdown(
                         "<div class='dk-flags'>" + "<br>".join(flags) + "</div>",
                         unsafe_allow_html=True,
                     )
 
-                table = build_pitch_table(df, side)
+                table = build_pitch_table(df_segment, side)
                 st.markdown(
                     table.to_html(index=False, classes="dk-table", escape=False),
                     unsafe_allow_html=True,
