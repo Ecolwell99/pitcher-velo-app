@@ -353,7 +353,6 @@ for tab, segment in zip(tabs, split(away_df_full).keys()):
 
             st.markdown(
                 f"<div class='dk-subtitle'>{team} • {segment} • {season}</div>",
-,
                 unsafe_allow_html=True
             )
 
@@ -386,6 +385,7 @@ for tab, segment in zip(tabs, split(away_df_full).keys()):
                 )
 
             st.markdown("<hr style='opacity:0.2;'>", unsafe_allow_html=True)
+
 
 
 
