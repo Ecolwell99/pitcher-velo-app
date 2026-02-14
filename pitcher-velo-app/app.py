@@ -362,8 +362,8 @@ for tab, segment in zip(tabs, split(away_df_full).keys()):
                     unsafe_allow_html=True
                 )
 
-            hand = get_pitcher_hand(first, last)
-            hand_display = f"{hand} • " if hand else ""
+                hand = get_pitcher_hand(first, last)
+                hand_display = f"{hand} • " if hand else ""
 
                 st.markdown(
                     f"<div class='dk-subtitle'>{team} • {hand_display}{segment} • {season}</div>",
@@ -400,6 +400,7 @@ for tab, segment in zip(tabs, split(away_df_full).keys()):
                 )
 
             st.markdown("<hr style='opacity:0.2;'>", unsafe_allow_html=True)
+
 
 
 
