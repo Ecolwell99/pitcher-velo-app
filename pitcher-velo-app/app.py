@@ -370,7 +370,6 @@ for tab, segment in zip(tabs, split(away_df_full).keys()):
     unsafe_allow_html=True
                 )
 
-            )
 
             for side in ["L", "R"]:
                 label = "vs LHB" if side == "L" else "vs RHB"
@@ -401,6 +400,7 @@ for tab, segment in zip(tabs, split(away_df_full).keys()):
                 )
 
             st.markdown("<hr style='opacity:0.2;'>", unsafe_allow_html=True)
+
 
 
 
