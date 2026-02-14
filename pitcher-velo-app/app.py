@@ -213,4 +213,170 @@ def build_structure_flags(df, side):
 # =============================
 def build_pitch_table(df, side):
     rows = []
-    for count, g in d
+    for count, g in df[df["stand"] == side].groupby("count"):
+        g = g.dropna(subset=["release_speed", "pitch_type"])
+        if g.empty:
+            continue
+        total = len(g)
+        if total < 5:
+            continue
+
+        summary = (
+            g.groupby("pitch_type")
+            .agg(n=("pitch_type", "size"),
+                 mph_list=("release_speed", list))
+            .reset_index()
+        )
+        summary["pct"] = (summary["n"] / total * 100).round(0)
+
+        group_totals = {"Fastball": 0, "Breaking": 0, "Offspeed": 0}
+        dominant_velos = {"Fastball": None, "Breaking": None, "Offspeed": None}
+        dominant_pct = {"Fastball": 0, "Breaking": 0, "Offspeed": 0}
+
+        for _, r in summary.iterrows():
+            pt = r["pitch_type"]
+            pct = int(r["pct"])
+            velocities = np.array(r["mph_list"])
+
+            if pt in FASTBALLS:
+                group = "Fastball"
+            elif pt in BREAKING:
+                group = "Breaking"
+            elif pt in OFFSPEED:
+                group = "Offspeed"
+            else:
+                continue
+
+            group_totals[group] += pct
+            if pct > dominant_pct[group]:
+                dominant_pct[group] = pct
+                dominant_velos[group] = velocities
+
+        row_data = {"Count": count}
+
+        for group in ["Fastball", "Breaking", "Offspeed"]:
+            if group_totals[group] > 0:
+                velocities = dominant_velos[group]
+                pct = group_totals[group]
+                if len(velocities) >= 15:
+                    lower = int(round(np.percentile(velocities, 10)))
+                    upper = int(round(np.percentile(velocities, 90)))
+                else:
+                    mean = velocities.mean()
+                    lower = int(round(mean - 1))
+                    upper = int(round(mean + 1))
+                row_data[group] = f"{pct}% ({lower}-{upper})"
+            else:
+                row_data[group] = "—"
+
+        sorted_groups = sorted(group_totals.items(), key=lambda x: x[1], reverse=True)
+        if len(sorted_groups) > 1:
+            top, second = sorted_groups[0], sorted_groups[1]
+            if top[1] >= second[1] + 10:
+                row_data[top[0]] = f"<span class='dk-fav'>{row_data[top[0]]}</span>"
+
+        rows.append(row_data)
+
+    out = pd.DataFrame(rows)
+    if out.empty:
+        return out
+
+    out["s"] = out["Count"].apply(lambda x: int(x.split("-")[0]) * 10 + int(x.split("-")[1]))
+    return out.sort_values("s").drop(columns="s").reset_index(drop=True)
+
+# =============================
+# Controls
+# =============================
+c1, c2, c3 = st.columns([3, 3, 2])
+with c1:
+    away = st.text_input("Away Pitcher (First Last)")
+with c2:
+    home = st.text_input("Home Pitcher (First Last)")
+with c3:
+    season = st.selectbox("Season", [2025, 2026])
+
+if not st.button("Run Matchup", use_container_width=True):
+    st.stop()
+
+away_f, away_l, away_name = resolve_pitcher(away, season, "Away")
+home_f, home_l, home_name = resolve_pitcher(home, season, "Home")
+
+away_df_full = get_pitcher_data(away_f, away_l, season)
+home_df_full = get_pitcher_data(home_f, home_l, season)
+
+away_team = get_current_team(away_df_full)
+home_team = get_current_team(home_df_full)
+
+def split(df):
+    return {
+        "All": df,
+        "Early (1–2)": df[df["inning"].isin([1, 2])],
+        "Middle (3–4)": df[df["inning"].isin([3, 4])],
+        "Late (5+)": df[df["inning"] >= 5],
+    }
+
+tabs = st.tabs(["All", "Early (1–2)", "Middle (3–4)", "Late (5+)"])
+
+for tab, segment in zip(tabs, split(away_df_full).keys()):
+    with tab:
+        for name, df_full, role, team, first, last in [
+            (away_name, away_df_full, "Away", away_team, away_f, away_l),
+            (home_name, home_df_full, "Home", home_team, home_f, home_l),
+        ]:
+
+            df_segment = split(df_full)[segment]
+
+            mlbam_id = get_mlbam_id(first, last)
+
+            if mlbam_id:
+                savant_url = f"https://baseballsavant.mlb.com/savant-player/{mlbam_id}"
+                st.markdown(
+                    f"""
+                    <a href="{savant_url}" target="_blank" class="dk-link">
+                        <div style='font-size:24px; font-weight:700; margin-top:10px;'>{name}</div>
+                    </a>
+                    """,
+                    unsafe_allow_html=True
+                )
+            else:
+                st.markdown(
+                    f"<div style='font-size:24px; font-weight:700; margin-top:10px;'>{name}</div>",
+                    unsafe_allow_html=True
+                )
+
+            st.markdown(
+                f"<div class='dk-subtitle'>{team} • {role} • {segment} • {season}</div>",
+                unsafe_allow_html=True
+            )
+
+            for side in ["L", "R"]:
+                label = "vs LHB" if side == "L" else "vs RHB"
+
+                st.markdown(
+                    f"<div style='font-weight:600; font-size:15px; margin-top:10px;'>{label}</div>",
+                    unsafe_allow_html=True
+                )
+
+                mix_line = build_inline_mix(df_segment, side)
+                if mix_line:
+                    st.markdown(
+                        f"<div class='dk-mix'>Mix: {mix_line}</div>",
+                        unsafe_allow_html=True,
+                    )
+
+                flags = build_structure_flags(df_segment, side)
+                if flags:
+                    st.markdown(
+                        "<div class='dk-flags'>" + "<br>".join(flags) + "</div>",
+                        unsafe_allow_html=True,
+                    )
+
+                table = build_pitch_table(df_segment, side)
+                st.markdown(
+                    table.to_html(index=False, classes="dk-table", escape=False),
+                    unsafe_allow_html=True,
+                )
+
+            st.markdown("<hr style='opacity:0.2;'>", unsafe_allow_html=True)
+
+
