@@ -75,6 +75,15 @@ TABLE_CSS = """
     margin-bottom: 8px;
     line-height: 1.4;
 }
+.dk-link {
+    color: #ffffff;
+    text-decoration: none;
+}
+.dk-link:hover {
+    text-decoration: none;
+    opacity: 0.85;
+}
+
 </style>
 """
 st.markdown(TABLE_CSS, unsafe_allow_html=True)
@@ -102,6 +111,15 @@ REGISTRY = load_registry()
 def resolve_pitcher(name, season, role):
     norm = normalize_name(name)
     rows = REGISTRY[REGISTRY["norm"] == norm]
+def get_mlbam_id(first, last):
+    rows = REGISTRY[
+        (REGISTRY["name_first"].str.lower() == first.lower()) &
+        (REGISTRY["name_last"].str.lower() == last.lower())
+    ]
+    if not rows.empty and "key_mlbam" in rows.columns:
+        return rows.iloc[0]["key_mlbam"]
+    return None
+
 
     valid = []
     for _, r in rows.iterrows():
@@ -348,9 +366,27 @@ for tab, segment in zip(tabs, split(away_df_full).keys()):
 
             df_segment = split(df_full)[segment]
 
-            st.markdown(
-                f"<div style='font-size:24px; font-weight:700; margin-top:10px;'>{name}</div>",
-                unsafe_allow_html=True
+           mlbam_id = get_mlbam_id(
+    name.split()[0],
+    name.split()[-1]
+)
+
+if mlbam_id:
+    savant_url = f"https://baseballsavant.mlb.com/savant-player/{mlbam_id}"
+    st.markdown(
+        f"""
+        <a href="{savant_url}" target="_blank" class="dk-link">
+            <div style='font-size:24px; font-weight:700; margin-top:10px;'>{name}</div>
+        </a>
+        """,
+        unsafe_allow_html=True
+    )
+else:
+    st.markdown(
+        f"<div style='font-size:24px; font-weight:700; margin-top:10px;'>{name}</div>",
+        unsafe_allow_html=True
+    )
+
             )
             st.markdown(
                 f"<div class='dk-subtitle'>{team} • {role} • {segment} • {season}</div>",
@@ -386,4 +422,5 @@ for tab, segment in zip(tabs, split(away_df_full).keys()):
                 )
 
             st.markdown("<hr style='opacity:0.2;'>", unsafe_allow_html=True)
+
 
