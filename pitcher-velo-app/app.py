@@ -292,14 +292,27 @@ home_df_full = get_pitcher_data(home_f, home_l, season)
 away_team = get_current_team(away_df_full)
 home_team = get_current_team(home_df_full)
 
-tabs = st.tabs(["All"])
+# =============================
+# Segment Split (RESTORED)
+# =============================
+def split(df):
+    return {
+        "All": df,
+        "Early (1–2)": df[df["inning"].isin([1, 2])],
+        "Middle (3–4)": df[df["inning"].isin([3, 4])],
+        "Late (5+)": df[df["inning"] >= 5],
+    }
 
-for tab in tabs:
+tabs = st.tabs(["All", "Early (1–2)", "Middle (3–4)", "Late (5+)"])
+
+for tab, segment in zip(tabs, split(away_df_full).keys()):
     with tab:
         for name, df_full, role, team, first, last in [
             (away_name, away_df_full, "Away", away_team, away_f, away_l),
             (home_name, home_df_full, "Home", home_team, home_f, home_l),
         ]:
+
+            df_segment = split(df_full)[segment]
 
             mlbam_id = get_mlbam_id(first, last)
 
@@ -320,7 +333,7 @@ for tab in tabs:
                 )
 
             st.markdown(
-                f"<div class='dk-subtitle'>{team} • {role} • All • {season}</div>",
+                f"<div class='dk-subtitle'>{team} • {role} • {segment} • {season}</div>",
                 unsafe_allow_html=True
             )
 
@@ -332,18 +345,26 @@ for tab in tabs:
                     unsafe_allow_html=True
                 )
 
-                mix_line = build_inline_mix(df_full, side)
+                mix_line = build_inline_mix(df_segment, side)
                 if mix_line:
                     st.markdown(
                         f"<div class='dk-mix'>Mix: {mix_line}</div>",
                         unsafe_allow_html=True,
                     )
 
-                table = build_pitch_table(df_full, side)
+                flags = build_structure_flags(df_segment, side)
+                if flags:
+                    st.markdown(
+                        "<div class='dk-flags'>" + "<br>".join(flags) + "</div>",
+                        unsafe_allow_html=True,
+                    )
+
+                table = build_pitch_table(df_segment, side)
                 st.markdown(
                     table.to_html(index=False, classes="dk-table", escape=False),
                     unsafe_allow_html=True,
                 )
 
             st.markdown("<hr style='opacity:0.2;'>", unsafe_allow_html=True)
+
 
