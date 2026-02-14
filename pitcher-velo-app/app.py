@@ -79,15 +79,7 @@ a.dk-link {
     color: #ffffff !important;
     text-decoration: none !important;
 }
-
 a.dk-link:hover {
-    color: #ffffff !important;
-    text-decoration: none !important;
-    opacity: 0.85;
-}
-
-.dk-link:hover {
-    text-decoration: none;
     opacity: 0.85;
 }
 </style>
@@ -144,6 +136,7 @@ def get_mlbam_id(first, last):
     if not rows.empty and "key_mlbam" in rows.columns:
         return rows.iloc[0]["key_mlbam"]
     return None
+
 def get_pitcher_hand(first, last):
     rows = REGISTRY[
         (REGISTRY["name_first"].str.lower() == first.lower()) &
@@ -155,15 +148,14 @@ def get_pitcher_hand(first, last):
             return f"{hand}HP"
     return None
 
-
 def get_current_team(df):
     if df.empty or "game_date" not in df.columns:
         return None
-    latest_row = df.sort_values("game_date", ascending=False).iloc[0]
+    latest = df.sort_values("game_date", ascending=False).iloc[0]
     if "home_team" in df.columns and "away_team" in df.columns:
         if "inning_topbot" in df.columns:
-            return latest_row["home_team"] if latest_row["inning_topbot"] == "Top" else latest_row["away_team"]
-        return latest_row["home_team"]
+            return latest["home_team"] if latest["inning_topbot"] == "Top" else latest["away_team"]
+        return latest["home_team"]
     return None
 
 FASTBALLS = {"FF", "SI", "FC"}
@@ -198,29 +190,29 @@ def build_structure_flags(df, side):
         counts = g["pitch_type"].value_counts(normalize=True) * 100
         if counts.empty:
             continue
-        top_pitch = counts.idxmax()
-        if top_pitch in FASTBALLS:
+        top = counts.idxmax()
+        if top in FASTBALLS:
             group = "Fastball"
-        elif top_pitch in BREAKING:
+        elif top in BREAKING:
             group = "Breaking"
-        elif top_pitch in OFFSPEED:
+        elif top in OFFSPEED:
             group = "Offspeed"
         else:
             continue
         dominance[count] = group
 
     early = {"0-0", "1-0", "0-1"}
-    two_strike = {"0-2", "1-2", "2-2"}
+    two = {"0-2", "1-2", "2-2"}
     full = {"3-2"}
 
-    def most_common(counts):
-        vals = [dominance[c] for c in counts if c in dominance]
+    def most_common(keys):
+        vals = [dominance[k] for k in keys if k in dominance]
         return max(set(vals), key=vals.count) if vals else None
 
     flags = []
     if e := most_common(early):
         flags.append(f"• Early Counts: {e}")
-    if t := most_common(two_strike):
+    if t := most_common(two):
         flags.append(f"• 2-Strike: {t}")
     if f := most_common(full):
         flags.append(f"• Full Count: {f}")
@@ -231,10 +223,12 @@ def build_structure_flags(df, side):
 # =============================
 def build_pitch_table(df, side):
     rows = []
+
     for count, g in df[df["stand"] == side].groupby("count"):
         g = g.dropna(subset=["release_speed", "pitch_type"])
         if g.empty:
             continue
+
         total = len(g)
         if total < 5:
             continue
@@ -245,6 +239,7 @@ def build_pitch_table(df, side):
                  mph_list=("release_speed", list))
             .reset_index()
         )
+
         summary["pct"] = (summary["n"] / total * 100).round(0)
 
         group_totals = {"Fastball": 0, "Breaking": 0, "Offspeed": 0}
@@ -266,6 +261,7 @@ def build_pitch_table(df, side):
                 continue
 
             group_totals[group] += pct
+
             if pct > dominant_pct[group]:
                 dominant_pct[group] = pct
                 dominant_velos[group] = velocities
@@ -276,14 +272,16 @@ def build_pitch_table(df, side):
             if group_totals[group] > 0:
                 velocities = dominant_velos[group]
                 pct = group_totals[group]
+
                 if len(velocities) >= 15:
-                    lower = int(round(np.percentile(velocities, 10)))
-                    upper = int(round(np.percentile(velocities, 90)))
+                    low = int(round(np.percentile(velocities, 10)))
+                    high = int(round(np.percentile(velocities, 90)))
                 else:
                     mean = velocities.mean()
-                    lower = int(round(mean - 1))
-                    upper = int(round(mean + 1))
-                row_data[group] = f"{pct}% ({lower}-{upper})"
+                    low = int(round(mean - 1))
+                    high = int(round(mean + 1))
+
+                row_data[group] = f"{pct}% ({low}-{high})"
             else:
                 row_data[group] = "—"
 
@@ -337,20 +335,19 @@ tabs = st.tabs(["All", "Early (1–2)", "Middle (3–4)", "Late (5+)"])
 
 for tab, segment in zip(tabs, split(away_df_full).keys()):
     with tab:
-        for name, df_full, role, team, first, last in [
-            (away_name, away_df_full, "Away", away_team, away_f, away_l),
-            (home_name, home_df_full, "Home", home_team, home_f, home_l),
+        for name, df_full, team, first, last in [
+            (away_name, away_df_full, away_team, away_f, away_l),
+            (home_name, home_df_full, home_team, home_f, home_l),
         ]:
 
             df_segment = split(df_full)[segment]
 
             mlbam_id = get_mlbam_id(first, last)
-
             if mlbam_id:
-                savant_url = f"https://baseballsavant.mlb.com/savant-player/{mlbam_id}"
+                url = f"https://baseballsavant.mlb.com/savant-player/{mlbam_id}"
                 st.markdown(
                     f"""
-                    <a href="{savant_url}" target="_blank" class="dk-link">
+                    <a href="{url}" target="_blank" class="dk-link">
                         <div style='font-size:24px; font-weight:700; margin-top:10px;'>{name}</div>
                     </a>
                     """,
@@ -362,14 +359,13 @@ for tab, segment in zip(tabs, split(away_df_full).keys()):
                     unsafe_allow_html=True
                 )
 
-                hand = get_pitcher_hand(first, last)
-                hand_display = f"{hand} • " if hand else ""
+            hand = get_pitcher_hand(first, last)
+            hand_display = f"{hand} • " if hand else ""
 
-                st.markdown(
-                    f"<div class='dk-subtitle'>{team} • {hand_display}{segment} • {season}</div>",
-    unsafe_allow_html=True
-                )
-
+            st.markdown(
+                f"<div class='dk-subtitle'>{team} • {hand_display}{segment} • {season}</div>",
+                unsafe_allow_html=True
+            )
 
             for side in ["L", "R"]:
                 label = "vs LHB" if side == "L" else "vs RHB"
@@ -400,15 +396,4 @@ for tab, segment in zip(tabs, split(away_df_full).keys()):
                 )
 
             st.markdown("<hr style='opacity:0.2;'>", unsafe_allow_html=True)
-
-
-
-
-
-
-
-
-
-
-
 
