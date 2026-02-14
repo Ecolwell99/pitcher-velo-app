@@ -75,10 +75,17 @@ TABLE_CSS = """
     margin-bottom: 8px;
     line-height: 1.4;
 }
-.dk-link {
-    color: #ffffff;
-    text-decoration: none;
+a.dk-link {
+    color: #ffffff !important;
+    text-decoration: none !important;
 }
+
+a.dk-link:hover {
+    color: #ffffff !important;
+    text-decoration: none !important;
+    opacity: 0.85;
+}
+
 .dk-link:hover {
     text-decoration: none;
     opacity: 0.85;
@@ -378,5 +385,6 @@ for tab, segment in zip(tabs, split(away_df_full).keys()):
                 )
 
             st.markdown("<hr style='opacity:0.2;'>", unsafe_allow_html=True)
+
 
 
