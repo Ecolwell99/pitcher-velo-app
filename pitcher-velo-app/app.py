@@ -24,61 +24,76 @@ st.markdown(
 )
 
 # =============================
-# CSS
+# CSS (Polished)
 # =============================
 TABLE_CSS = """
 <style>
 .dk-table {
-    width: 600px;
+    width: 560px;
     table-layout: fixed;
     border-collapse: collapse;
     font-size: 13px;
 }
+
 .dk-table th, .dk-table td {
     padding: 5px 6px;
-    border: 1px solid rgba(255,255,255,0.08);
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    border-right: none;
+    border-left: none;
+    border-top: none;
     text-align: center;
 }
+
 .dk-table td {
     color: #ffffff;
 }
+
 .dk-table th:first-child,
 .dk-table td:first-child {
     text-align: left;
     width: 60px;
     font-weight: 600;
 }
+
 .dk-table th {
     background: rgba(255,255,255,0.08);
     font-weight: 600;
 }
+
 .dk-table tbody tr:nth-child(even) td {
     background: rgba(255,255,255,0.04);
 }
+
 .dk-fav {
     font-weight: 600;
-    background-color: rgba(255,255,255,0.12);
-    border-radius: 8px;
-    padding: 2px 8px;
+    background-color: rgba(255,255,255,0.10);
+    border-radius: 6px;
+    padding: 2px 6px;
 }
+
 .dk-subtitle {
-    opacity: 0.6;
+    opacity: 0.55;
+    font-size: 13px;
     margin-bottom: 12px;
 }
+
 .dk-mix {
     font-size: 12px;
     margin-bottom: 8px;
     opacity: 0.75;
 }
+
 .dk-flags {
     font-size: 12px;
     margin-bottom: 8px;
     line-height: 1.4;
 }
+
 a.dk-link {
     color: #ffffff !important;
     text-decoration: none !important;
 }
+
 a.dk-link:hover {
     opacity: 0.85;
 }
@@ -134,9 +149,6 @@ def resolve_pitcher(name, season, role):
     choice = st.radio(f"Select {role} Pitcher", [v[2] for v in valid])
     return next(v for v in valid if v[2] == choice)
 
-# =============================
-# Pull handedness from Statcast
-# =============================
 def get_hand_from_statcast(df):
     if df is None or df.empty:
         return None
@@ -150,9 +162,6 @@ def get_hand_from_statcast(df):
         return f"{v}HP"
     return None
 
-# =============================
-# Most recent team
-# =============================
 def get_current_team(df):
     if df.empty or "game_date" not in df.columns:
         return None
@@ -167,9 +176,6 @@ FASTBALLS = {"FF", "SI", "FC"}
 BREAKING = {"SL", "CU", "KC", "SV", "ST"}
 OFFSPEED = {"CH", "FS", "FO"}
 
-# =============================
-# Inline Mix
-# =============================
 def build_inline_mix(df, side):
     g = df[df["stand"] == side].dropna(subset=["pitch_type"])
     if g.empty:
@@ -181,9 +187,6 @@ def build_inline_mix(df, side):
     mix = mix.sort_values("pct", ascending=False)
     return " | ".join(f"{r['pitch_type']} {int(r['pct'])}%" for _, r in mix.iterrows())
 
-# =============================
-# Structural Flags
-# =============================
 def build_structure_flags(df, side):
     dominance = {}
     for count, g in df[df["stand"] == side].groupby("count"):
@@ -221,9 +224,6 @@ def build_structure_flags(df, side):
         flags.append(f"• Full Count: {f}")
     return flags
 
-# =============================
-# Pitch Table
-# =============================
 def build_pitch_table(df, side):
     rows = []
     for count, g in df[df["stand"] == side].groupby("count"):
@@ -233,6 +233,7 @@ def build_pitch_table(df, side):
         total = len(g)
         if total < 5:
             continue
+
         summary = (
             g.groupby("pitch_type")
             .agg(n=("pitch_type", "size"),
@@ -345,14 +346,14 @@ for tab, segment in zip(tabs, split(away_df_full).keys()):
                 st.markdown(
                     f"""
                     <a href="{url}" target="_blank" class="dk-link">
-                        <div style='font-size:24px; font-weight:700; margin-top:10px;'>{name}</div>
+                        <div style='font-size:26px; font-weight:700; letter-spacing:0.2px; margin-top:10px;'>{name}</div>
                     </a>
                     """,
                     unsafe_allow_html=True
                 )
             else:
                 st.markdown(
-                    f"<div style='font-size:24px; font-weight:700; margin-top:10px;'>{name}</div>",
+                    f"<div style='font-size:26px; font-weight:700; letter-spacing:0.2px; margin-top:10px;'>{name}</div>",
                     unsafe_allow_html=True
                 )
 
@@ -392,4 +393,3 @@ for tab, segment in zip(tabs, split(away_df_full).keys()):
                 )
 
             st.markdown("<hr style='opacity:0.2;'>", unsafe_allow_html=True)
-
