@@ -44,9 +44,10 @@ TABLE_CSS = """
 }
 .dk-table th:first-child,
 .dk-table td:first-child {
-    text-align: left;
+    text-align: center;
     width: 60px;
-    font-weight: 600;
+    font-weight: 700;
+    color: #ffffff;
 }
 .dk-table th {
     background: rgba(255,255,255,0.08);
@@ -399,3 +400,4 @@ for tab, segment in zip(tabs, split(away_df_full).keys()):
                 )
 
             st.markdown("<hr style='opacity:0.2;'>", unsafe_allow_html=True)
+
