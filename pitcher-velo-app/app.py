@@ -293,8 +293,14 @@ def build_pitch_table(df, side):
     out = pd.DataFrame(rows)
     if out.empty:
         return out
-    out["s"] = out["Count"].apply(lambda x: int(x.split("-")[0]) * 10 + int(x.split("-")[1]))
-    return out.sort_values("s").drop(columns="s").reset_index(drop=True)
+    out["balls"] = out["Count"].apply(lambda x: int(x.split("-")[0]))
+out["strikes"] = out["Count"].apply(lambda x: int(x.split("-")[1]))
+        return (
+    out.sort_values(["strikes", "balls"])
+       .drop(columns=["balls", "strikes"])
+       .reset_index(drop=True)
+)
+
 
 # =============================
 # Controls
@@ -393,5 +399,6 @@ for tab, segment in zip(tabs, split(away_df_full).keys()):
                 )
 
             st.markdown("<hr style='opacity:0.2;'>", unsafe_allow_html=True)
+
 
 
