@@ -106,9 +106,6 @@ def load_registry():
 
 REGISTRY = load_registry()
 
-# =============================
-# Resolve pitcher
-# =============================
 def resolve_pitcher(name, season, role):
     norm = normalize_name(name)
     rows = REGISTRY[REGISTRY["norm"] == norm]
@@ -118,22 +115,12 @@ def resolve_pitcher(name, season, role):
         try:
             df = get_pitcher_data(r["name_first"], r["name_last"], season)
             if not df.empty:
-
-                # robust handedness extraction
-                throws = None
-                for col in r.index:
-                    if col.lower() == "throws":
-                        throws = r[col]
-                        break
-
                 mlbam = r["key_mlbam"] if "key_mlbam" in r.index else None
-
                 valid.append((
                     r["name_first"],
                     r["name_last"],
                     r["display_name"],
-                    mlbam,
-                    throws
+                    mlbam
                 ))
         except:
             pass
@@ -148,19 +135,32 @@ def resolve_pitcher(name, season, role):
     return next(v for v in valid if v[2] == choice)
 
 # =============================
+# Pull handedness from Statcast
+# =============================
+def get_hand_from_statcast(df):
+    if df is None or df.empty:
+        return None
+    if "p_throws" not in df.columns:
+        return None
+    s = df["p_throws"].dropna().astype(str).str.upper()
+    if s.empty:
+        return None
+    v = s.mode().iloc[0]
+    if v in ["R", "L"]:
+        return f"{v}HP"
+    return None
+
+# =============================
 # Most recent team
 # =============================
 def get_current_team(df):
     if df.empty or "game_date" not in df.columns:
         return None
-
     latest = df.sort_values("game_date", ascending=False).iloc[0]
-
     if "home_team" in df.columns and "away_team" in df.columns:
         if "inning_topbot" in df.columns:
             return latest["home_team"] if latest["inning_topbot"] == "Top" else latest["away_team"]
         return latest["home_team"]
-
     return None
 
 FASTBALLS = {"FF", "SI", "FC"}
@@ -168,23 +168,21 @@ BREAKING = {"SL", "CU", "KC", "SV", "ST"}
 OFFSPEED = {"CH", "FS", "FO"}
 
 # =============================
-# Inline mix
+# Inline Mix
 # =============================
 def build_inline_mix(df, side):
     g = df[df["stand"] == side].dropna(subset=["pitch_type"])
     if g.empty:
         return None
-
     mix = g.groupby("pitch_type").size().reset_index(name="n")
     total = mix["n"].sum()
     mix["pct"] = (mix["n"] / total * 100).round(0)
     mix = mix[mix["pct"] >= 2]
     mix = mix.sort_values("pct", ascending=False)
-
     return " | ".join(f"{r['pitch_type']} {int(r['pct'])}%" for _, r in mix.iterrows())
 
 # =============================
-# Structural flags
+# Structural Flags
 # =============================
 def build_structure_flags(df, side):
     dominance = {}
@@ -192,13 +190,10 @@ def build_structure_flags(df, side):
         g = g.dropna(subset=["pitch_type"])
         if g.empty:
             continue
-
         counts = g["pitch_type"].value_counts(normalize=True) * 100
         if counts.empty:
             continue
-
         top = counts.idxmax()
-
         if top in FASTBALLS:
             group = "Fastball"
         elif top in BREAKING:
@@ -207,7 +202,6 @@ def build_structure_flags(df, side):
             group = "Offspeed"
         else:
             continue
-
         dominance[count] = group
 
     early = {"0-0", "1-0", "0-1"}
@@ -228,27 +222,23 @@ def build_structure_flags(df, side):
     return flags
 
 # =============================
-# Pitch table
+# Pitch Table
 # =============================
 def build_pitch_table(df, side):
     rows = []
-
     for count, g in df[df["stand"] == side].groupby("count"):
         g = g.dropna(subset=["release_speed", "pitch_type"])
         if g.empty:
             continue
-
         total = len(g)
         if total < 5:
             continue
-
         summary = (
             g.groupby("pitch_type")
             .agg(n=("pitch_type", "size"),
                  mph_list=("release_speed", list))
             .reset_index()
         )
-
         summary["pct"] = (summary["n"] / total * 100).round(0)
 
         group_totals = {"Fastball": 0, "Breaking": 0, "Offspeed": 0}
@@ -270,7 +260,6 @@ def build_pitch_table(df, side):
                 continue
 
             group_totals[group] += pct
-
             if pct > dominant_pct[group]:
                 dominant_pct[group] = pct
                 dominant_velos[group] = velocities
@@ -281,7 +270,6 @@ def build_pitch_table(df, side):
             if group_totals[group] > 0 and dominant_velos[group] is not None:
                 velocities = dominant_velos[group]
                 pct = group_totals[group]
-
                 if len(velocities) >= 15:
                     low = int(round(np.percentile(velocities, 10)))
                     high = int(round(np.percentile(velocities, 90)))
@@ -289,7 +277,6 @@ def build_pitch_table(df, side):
                     mean = velocities.mean()
                     low = int(round(mean - 1))
                     high = int(round(mean + 1))
-
                 row_data[group] = f"{pct}% ({low}-{high})"
             else:
                 row_data[group] = "—"
@@ -305,7 +292,6 @@ def build_pitch_table(df, side):
     out = pd.DataFrame(rows)
     if out.empty:
         return out
-
     out["s"] = out["Count"].apply(lambda x: int(x.split("-")[0]) * 10 + int(x.split("-")[1]))
     return out.sort_values("s").drop(columns="s").reset_index(drop=True)
 
@@ -323,14 +309,17 @@ with c3:
 if not st.button("Run Matchup", use_container_width=True):
     st.stop()
 
-away_f, away_l, away_name, away_mlbam, away_throws = resolve_pitcher(away, season, "Away")
-home_f, home_l, home_name, home_mlbam, home_throws = resolve_pitcher(home, season, "Home")
+away_f, away_l, away_name, away_mlbam = resolve_pitcher(away, season, "Away")
+home_f, home_l, home_name, home_mlbam = resolve_pitcher(home, season, "Home")
 
 away_df_full = get_pitcher_data(away_f, away_l, season)
 home_df_full = get_pitcher_data(home_f, home_l, season)
 
 away_team = get_current_team(away_df_full)
 home_team = get_current_team(home_df_full)
+
+away_hand = get_hand_from_statcast(away_df_full)
+home_hand = get_hand_from_statcast(home_df_full)
 
 def split(df):
     return {
@@ -344,9 +333,9 @@ tabs = st.tabs(["All", "Early (1–2)", "Middle (3–4)", "Late (5+)"])
 
 for tab, segment in zip(tabs, split(away_df_full).keys()):
     with tab:
-        for name, df_full, team, mlbam_id, throws in [
-            (away_name, away_df_full, away_team, away_mlbam, away_throws),
-            (home_name, home_df_full, home_team, home_mlbam, home_throws),
+        for name, df_full, team, mlbam_id, hand in [
+            (away_name, away_df_full, away_team, away_mlbam, away_hand),
+            (home_name, home_df_full, home_team, home_mlbam, home_hand),
         ]:
 
             df_segment = split(df_full)[segment]
@@ -367,9 +356,7 @@ for tab, segment in zip(tabs, split(away_df_full).keys()):
                     unsafe_allow_html=True
                 )
 
-            hand_display = ""
-            if isinstance(throws, str) and throws.upper() in ["R", "L"]:
-                hand_display = f"{throws.upper()}HP • "
+            hand_display = f"{hand} • " if hand else ""
 
             st.markdown(
                 f"<div class='dk-subtitle'>{team} • {hand_display}{segment} • {season}</div>",
@@ -405,3 +392,4 @@ for tab, segment in zip(tabs, split(away_df_full).keys()):
                 )
 
             st.markdown("<hr style='opacity:0.2;'>", unsafe_allow_html=True)
+
