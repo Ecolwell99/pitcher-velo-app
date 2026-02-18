@@ -401,3 +401,4 @@ for tab, segment in zip(tabs, split(away_df_full).keys()):
 
             st.markdown("<hr style='opacity:0.2;'>", unsafe_allow_html=True)
 
+
