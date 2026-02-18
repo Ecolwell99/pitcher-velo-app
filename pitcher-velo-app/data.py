@@ -31,17 +31,25 @@ def _lookup_pitcher_id(first_name, last_name):
     return int(selected["key_mlbam"])
 
 
+@lru_cache(maxsize=256)
+def _load_statcast_pitcher(start, end, pid):
+    df = statcast_pitcher(start, end, pid)
+    if df is None:
+        return pd.DataFrame()
+    return df
+
+
 def get_pitcher_data(first_name, last_name, season):
     pid = _lookup_pitcher_id(first_name, last_name)
 
     start = f"{season}-03-01"
     end = f"{season}-11-30"
 
-    df = statcast_pitcher(start, end, pid)
-
-    if df is None or df.empty:
+    raw = _load_statcast_pitcher(start, end, pid)
+    if raw.empty:
         return pd.DataFrame()
 
+    df = raw.copy()
     df = df[df["release_speed"].notna()].copy()
 
     df["count"] = (
@@ -53,6 +61,7 @@ def get_pitcher_data(first_name, last_name, season):
     df["pitch_name"] = df["pitch_type"].map(PITCH_MAP).fillna(df["pitch_type"])
     df = df[df["stand"].isin(["R", "L"])]
 
+    # Keep only fields used in app logic/UI while still trimming unused columns.
     keep_cols = [
         "stand",
         "count",
@@ -60,6 +69,12 @@ def get_pitcher_data(first_name, last_name, season):
         "pitch_type",
         "pitch_name",
         "inning",
+        "game_date",
+        "home_team",
+        "away_team",
+        "inning_topbot",
+        "p_throws",
     ]
     existing_cols = [col for col in keep_cols if col in df.columns]
     return df[existing_cols].copy()
+
