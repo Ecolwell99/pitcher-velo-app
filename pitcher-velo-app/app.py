@@ -6,6 +6,8 @@ import numpy as np
 from pybaseball import chadwick_register
 from data import get_pitcher_data
 
+st.caption("DEV BUILD CHECK 2026-02-18")
+
 # =============================
 # Page setup
 # =============================
@@ -400,5 +402,6 @@ for tab, segment in zip(tabs, split(away_df_full).keys()):
                 )
 
             st.markdown("<hr style='opacity:0.2;'>", unsafe_allow_html=True)
+
 
 
