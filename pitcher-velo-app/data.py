@@ -1,5 +1,7 @@
-from pybaseball import statcast_pitcher, playerid_lookup
+from functools import lru_cache
+
 import pandas as pd
+from pybaseball import playerid_lookup, statcast_pitcher
 
 PITCH_MAP = {
     "FF": "Four-Seam",
@@ -13,12 +15,24 @@ PITCH_MAP = {
     "ST": "Sweeper",
 }
 
-def get_pitcher_data(first_name, last_name, season):
+
+@lru_cache(maxsize=512)
+def _lookup_pitcher_id(first_name, last_name):
     matches = playerid_lookup(last_name, first_name)
     if matches.empty:
         raise ValueError(f"No pitcher found for: {first_name} {last_name}")
 
-    pid = int(matches.iloc[0]["key_mlbam"])
+    # Prefer exact first/last-name matches when available.
+    exact = matches[
+        (matches["name_first"].str.lower() == first_name.lower())
+        & (matches["name_last"].str.lower() == last_name.lower())
+    ]
+    selected = exact.iloc[0] if not exact.empty else matches.iloc[0]
+    return int(selected["key_mlbam"])
+
+
+def get_pitcher_data(first_name, last_name, season):
+    pid = _lookup_pitcher_id(first_name, last_name)
 
     start = f"{season}-03-01"
     end = f"{season}-11-30"
@@ -39,4 +53,13 @@ def get_pitcher_data(first_name, last_name, season):
     df["pitch_name"] = df["pitch_type"].map(PITCH_MAP).fillna(df["pitch_type"])
     df = df[df["stand"].isin(["R", "L"])]
 
-    return df
+    keep_cols = [
+        "stand",
+        "count",
+        "release_speed",
+        "pitch_type",
+        "pitch_name",
+        "inning",
+    ]
+    existing_cols = [col for col in keep_cols if col in df.columns]
+    return df[existing_cols].copy()
