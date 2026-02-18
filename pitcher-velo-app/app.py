@@ -1,10 +1,32 @@
-import streamlit as st
-import pandas as pd
 import re
 import unicodedata
+
 import numpy as np
+import pandas as pd
+import streamlit as st
 from pybaseball import chadwick_register
+
 from data import get_pitcher_data
+
+# =============================
+# Constants
+# =============================
+COUNT_ORDER = [
+    "0-0",
+    "1-0",
+    "0-1",
+    "2-0",
+    "1-1",
+    "0-2",
+    "3-0",
+    "2-1",
+    "1-2",
+    "3-1",
+    "2-2",
+    "3-2",
+]
+COUNT_ORDER_MAP = {c: i for i, c in enumerate(COUNT_ORDER)}
+SEGMENTS = ["All", "Early (1-2)", "Middle (3-4)", "Late (5+)"]
 
 # =============================
 # Page setup
@@ -29,7 +51,7 @@ st.markdown(
 TABLE_CSS = """
 <style>
 .dk-table {
-    width: 600px;
+    width: 640px;
     table-layout: fixed;
     border-collapse: collapse;
     font-size: 13px;
@@ -95,17 +117,24 @@ def normalize_name(name):
     name = "".join(c for c in name if not unicodedata.combining(c))
     return re.sub(r"\s+", " ", name.lower()).strip()
 
-@st.cache_data(show_spinner=False)
+
+@st.cache_data(ttl=24 * 60 * 60, show_spinner=False)
 def load_registry():
     df = chadwick_register().copy()
     df["display_name"] = (
-        df.get("name_first", "").fillna("") + " " +
-        df.get("name_last", "").fillna("")
+        df.get("name_first", "").fillna("") + " " + df.get("name_last", "").fillna("")
     ).str.strip()
     df["norm"] = df["display_name"].apply(normalize_name)
     return df
 
+
+@st.cache_data(ttl=24 * 60 * 60, show_spinner=False)
+def load_pitcher_data(first_name, last_name, season):
+    return get_pitcher_data(first_name, last_name, season)
+
+
 REGISTRY = load_registry()
+
 
 def resolve_pitcher(name, season, role):
     norm = normalize_name(name)
@@ -114,26 +143,22 @@ def resolve_pitcher(name, season, role):
     valid = []
     for _, r in rows.iterrows():
         try:
-            df = get_pitcher_data(r["name_first"], r["name_last"], season)
+            df = load_pitcher_data(r["name_first"], r["name_last"], season)
             if not df.empty:
                 mlbam = r["key_mlbam"] if "key_mlbam" in r.index else None
-                valid.append((
-                    r["name_first"],
-                    r["name_last"],
-                    r["display_name"],
-                    mlbam
-                ))
-        except:
+                valid.append((r["name_first"], r["name_last"], r["display_name"], mlbam))
+        except Exception:
             pass
 
     if not valid:
-        raise ValueError
+        raise ValueError(f"No Statcast results found for {role.lower()} input: {name}")
 
     if len(valid) == 1:
         return valid[0]
 
-    choice = st.radio(f"Select {role} Pitcher", [v[2] for v in valid])
+    choice = st.radio(f"Select {role} Pitcher", [v[2] for v in valid], horizontal=True)
     return next(v for v in valid if v[2] == choice)
+
 
 # =============================
 # Pull handedness from Statcast
@@ -151,6 +176,7 @@ def get_hand_from_statcast(df):
         return f"{v}HP"
     return None
 
+
 # =============================
 # Most recent team
 # =============================
@@ -164,9 +190,22 @@ def get_current_team(df):
         return latest["home_team"]
     return None
 
+
+def count_state_label(count):
+    balls, strikes = map(int, count.split("-"))
+    if balls == 3 and strikes == 2:
+        return "Full"
+    if balls > strikes:
+        return "Hitter"
+    if strikes > balls:
+        return "Pitcher"
+    return "Even"
+
+
 FASTBALLS = {"FF", "SI", "FC"}
 BREAKING = {"SL", "CU", "KC", "SV", "ST"}
 OFFSPEED = {"CH", "FS", "FO"}
+
 
 # =============================
 # Inline Mix
@@ -181,6 +220,7 @@ def build_inline_mix(df, side):
     mix = mix[mix["pct"] >= 2]
     mix = mix.sort_values("pct", ascending=False)
     return " | ".join(f"{r['pitch_type']} {int(r['pct'])}%" for _, r in mix.iterrows())
+
 
 # =============================
 # Structural Flags
@@ -215,29 +255,29 @@ def build_structure_flags(df, side):
 
     flags = []
     if e := most_common(early):
-        flags.append(f"• Early Counts: {e}")
+        flags.append(f"� Early Counts: {e}")
     if t := most_common(two):
-        flags.append(f"• 2-Strike: {t}")
+        flags.append(f"� 2-Strike: {t}")
     if f := most_common(full):
-        flags.append(f"• Full Count: {f}")
+        flags.append(f"� Full Count: {f}")
     return flags
+
 
 # =============================
 # Pitch Table
 # =============================
-def build_pitch_table(df, side):
+def build_pitch_table(df, side, min_pitches_per_count, anchor_count, show_anchor_only):
     rows = []
     for count, g in df[df["stand"] == side].groupby("count"):
         g = g.dropna(subset=["release_speed", "pitch_type"])
         if g.empty:
             continue
         total = len(g)
-        if total < 5:
+        if total < min_pitches_per_count:
             continue
         summary = (
             g.groupby("pitch_type")
-            .agg(n=("pitch_type", "size"),
-                 mph_list=("release_speed", list))
+            .agg(n=("pitch_type", "size"), mph_list=("release_speed", list))
             .reset_index()
         )
         summary["pct"] = (summary["n"] / total * 100).round(0)
@@ -265,7 +305,7 @@ def build_pitch_table(df, side):
                 dominant_pct[group] = pct
                 dominant_velos[group] = velocities
 
-        row_data = {"Count": count}
+        row_data = {"Count": count, "State": count_state_label(count)}
 
         for group in ["Fastball", "Breaking", "Offspeed"]:
             if group_totals[group] > 0 and dominant_velos[group] is not None:
@@ -280,7 +320,7 @@ def build_pitch_table(df, side):
                     high = int(round(mean + 1))
                 row_data[group] = f"{pct}% ({low}-{high})"
             else:
-                row_data[group] = "—"
+                row_data[group] = "�"
 
         sorted_groups = sorted(group_totals.items(), key=lambda x: x[1], reverse=True)
         if len(sorted_groups) > 1:
@@ -294,14 +334,31 @@ def build_pitch_table(df, side):
     if out.empty:
         return out
 
-    # NEW: Sort counts by strikes first, then balls (faster scan for traders)
-    out["balls"] = out["Count"].apply(lambda x: int(x.split("-")[0]))
-    out["strikes"] = out["Count"].apply(lambda x: int(x.split("-")[1]))
-    return (
-        out.sort_values(["strikes", "balls"])
-           .drop(columns=["balls", "strikes"])
-           .reset_index(drop=True)
-    )
+    out["count_rank"] = out["Count"].map(COUNT_ORDER_MAP).fillna(999)
+    out = out.sort_values("count_rank")
+
+    if show_anchor_only:
+        out = out[out["Count"] == anchor_count]
+    elif anchor_count in out["Count"].values:
+        out = pd.concat(
+            [out[out["Count"] == anchor_count], out[out["Count"] != anchor_count]],
+            ignore_index=True,
+        )
+
+    return out.drop(columns=["count_rank"]).reset_index(drop=True)
+
+
+# =============================
+# Segment split
+# =============================
+def split_segments(df):
+    return {
+        "All": df,
+        "Early (1-2)": df[df["inning"].isin([1, 2])],
+        "Middle (3-4)": df[df["inning"].isin([3, 4])],
+        "Late (5+)": df[df["inning"] >= 5],
+    }
+
 
 # =============================
 # Controls
@@ -312,16 +369,33 @@ with c1:
 with c2:
     home = st.text_input("Home Pitcher (First Last)")
 with c3:
-    season = st.selectbox("Season", [2025, 2026])
+    season = st.selectbox("Season", [2025, 2026], index=0)
 
-if not st.button("Run Matchup", use_container_width=True):
+c4, c5, c6 = st.columns([2, 2, 2])
+with c4:
+    min_pitches_per_count = st.number_input(
+        "Min pitches / count", min_value=1, max_value=100, value=5, step=1
+    )
+with c5:
+    anchor_count = st.selectbox("Anchor count", COUNT_ORDER, index=0)
+with c6:
+    show_anchor_only = st.checkbox("Show anchor only", value=False)
+
+if st.button("Run Matchup", use_container_width=True):
+    pass
+else:
     st.stop()
 
-away_f, away_l, away_name, away_mlbam = resolve_pitcher(away, season, "Away")
-home_f, home_l, home_name, home_mlbam = resolve_pitcher(home, season, "Home")
+try:
+    away_f, away_l, away_name, away_mlbam = resolve_pitcher(away, season, "Away")
+    home_f, home_l, home_name, home_mlbam = resolve_pitcher(home, season, "Home")
+except ValueError as e:
+    st.error(str(e))
+    st.stop()
 
-away_df_full = get_pitcher_data(away_f, away_l, season)
-home_df_full = get_pitcher_data(home_f, home_l, season)
+with st.spinner("Loading pitcher data..."):
+    away_df_full = load_pitcher_data(away_f, away_l, season)
+    home_df_full = load_pitcher_data(home_f, home_l, season)
 
 away_team = get_current_team(away_df_full)
 home_team = get_current_team(home_df_full)
@@ -329,25 +403,21 @@ home_team = get_current_team(home_df_full)
 away_hand = get_hand_from_statcast(away_df_full)
 home_hand = get_hand_from_statcast(home_df_full)
 
-def split(df):
-    return {
-        "All": df,
-        "Early (1–2)": df[df["inning"].isin([1, 2])],
-        "Middle (3–4)": df[df["inning"].isin([3, 4])],
-        "Late (5+)": df[df["inning"] >= 5],
-    }
+away_splits = split_segments(away_df_full)
+home_splits = split_segments(home_df_full)
 
-tabs = st.tabs(["All", "Early (1–2)", "Middle (3–4)", "Late (5+)"])
+if st.button("Refresh cache"):
+    load_pitcher_data.clear()
+    st.cache_data.clear()
 
-for tab, segment in zip(tabs, split(away_df_full).keys()):
+tabs = st.tabs(SEGMENTS)
+
+for tab, segment in zip(tabs, SEGMENTS):
     with tab:
-        for name, df_full, team, mlbam_id, hand in [
-            (away_name, away_df_full, away_team, away_mlbam, away_hand),
-            (home_name, home_df_full, home_team, home_mlbam, home_hand),
+        for name, team, mlbam_id, hand, segment_df in [
+            (away_name, away_team, away_mlbam, away_hand, away_splits[segment]),
+            (home_name, home_team, home_mlbam, home_hand, home_splits[segment]),
         ]:
-
-            df_segment = split(df_full)[segment]
-
             if mlbam_id:
                 url = f"https://baseballsavant.mlb.com/savant-player/{int(mlbam_id)}"
                 st.markdown(
@@ -356,19 +426,20 @@ for tab, segment in zip(tabs, split(away_df_full).keys()):
                         <div style='font-size:24px; font-weight:700; margin-top:10px;'>{name}</div>
                     </a>
                     """,
-                    unsafe_allow_html=True
+                    unsafe_allow_html=True,
                 )
             else:
                 st.markdown(
                     f"<div style='font-size:24px; font-weight:700; margin-top:10px;'>{name}</div>",
-                    unsafe_allow_html=True
+                    unsafe_allow_html=True,
                 )
 
-            hand_display = f"{hand} • " if hand else ""
+            hand_display = f"{hand} � " if hand else ""
+            team_display = team if team else "-"
 
             st.markdown(
-                f"<div class='dk-subtitle'>{team} • {hand_display}{segment} • {season}</div>",
-                unsafe_allow_html=True
+                f"<div class='dk-subtitle'>{team_display} � {hand_display}{segment} � {season}</div>",
+                unsafe_allow_html=True,
             )
 
             for side in ["L", "R"]:
@@ -376,31 +447,38 @@ for tab, segment in zip(tabs, split(away_df_full).keys()):
 
                 st.markdown(
                     f"<div style='font-weight:600; font-size:18px; margin-top:10px;'>{label}</div>",
-                    unsafe_allow_html=True
+                    unsafe_allow_html=True,
                 )
 
-                mix_line = build_inline_mix(df_segment, side)
+                mix_line = build_inline_mix(segment_df, side)
                 if mix_line:
                     st.markdown(
                         f"<div class='dk-mix'>Mix: {mix_line}</div>",
                         unsafe_allow_html=True,
                     )
 
-                flags = build_structure_flags(df_segment, side)
+                flags = build_structure_flags(segment_df, side)
                 if flags:
                     st.markdown(
                         "<div class='dk-flags'>" + "<br>".join(flags) + "</div>",
                         unsafe_allow_html=True,
                     )
 
-                table = build_pitch_table(df_segment, side)
-                st.markdown(
-                    table.to_html(index=False, classes="dk-table", escape=False),
-                    unsafe_allow_html=True,
+                table = build_pitch_table(
+                    segment_df,
+                    side,
+                    min_pitches_per_count=min_pitches_per_count,
+                    anchor_count=anchor_count,
+                    show_anchor_only=show_anchor_only,
                 )
 
+                if table.empty:
+                    st.markdown("<div class='dk-mix'>No rows for current filters.</div>", unsafe_allow_html=True)
+                else:
+                    st.markdown(
+                        table.to_html(index=False, classes="dk-table", escape=False),
+                        unsafe_allow_html=True,
+                    )
+
             st.markdown("<hr style='opacity:0.2;'>", unsafe_allow_html=True)
-
-
-
 
