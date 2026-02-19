@@ -27,7 +27,7 @@ COUNT_ORDER = [
 ]
 COUNT_ORDER_MAP = {c: i for i, c in enumerate(COUNT_ORDER)}
 SEGMENTS = ["All", "Early (1-2)", "Middle (3-4)", "Late (5+)"]
-PREVIEW_COLOR_COLUMNS = True  # Set to False to revert to neutral columns
+DEFAULT_COLOR_COLUMNS = True  # Default for user toggle
 # =============================
 # Page setup
 # =============================
@@ -80,7 +80,7 @@ TABLE_CSS = """
 }
 .dk-fav {
     font-weight: 600;
-    background-color: rgba(220,220,220,0.12);
+    background-color: rgba(255,255,255,0.12);
     border-radius: 8px;
     padding: 2px 8px;
 }
@@ -108,19 +108,6 @@ a.dk-link:hover {
 </style>
 """
 st.markdown(TABLE_CSS, unsafe_allow_html=True)
-if PREVIEW_COLOR_COLUMNS:
-    st.markdown(
-        """
-        <style>
-        .dk-table th:nth-child(2), .dk-table td:nth-child(2) { color: #E95A3F; }
-        .dk-table th:nth-child(3), .dk-table td:nth-child(3) { color: #4C8DEB; }
-        .dk-table th:nth-child(4), .dk-table td:nth-child(4) { color: #49C2B1; }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
 # =============================
 # Helpers
 # =============================
@@ -356,14 +343,28 @@ def split_segments(df):
 # =============================
 # Controls
 # =============================
-c1, c2, c3 = st.columns([3, 3, 2])
+c1, c2, c3, c4 = st.columns([3, 3, 2, 2])
 with c1:
     away = st.text_input("Away Pitcher (First Last)")
 with c2:
     home = st.text_input("Home Pitcher (First Last)")
 with c3:
     season = st.selectbox("Season", [2025, 2026], index=0)
+with c4:
+    color_columns = st.checkbox("Color columns", value=DEFAULT_COLOR_COLUMNS)
 
+
+if color_columns:
+    st.markdown(
+        """
+        <style>
+        .dk-table th:nth-child(2), .dk-table td:nth-child(2) { color: #E95A3F; }
+        .dk-table th:nth-child(3), .dk-table td:nth-child(3) { color: #4C8DEB; }
+        .dk-table th:nth-child(4), .dk-table td:nth-child(4) { color: #49C2B1; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 if st.button("Run Matchup", use_container_width=True):
     pass
 else:
@@ -455,6 +456,7 @@ for tab, segment in zip(tabs, SEGMENTS):
                     )
 
             st.markdown("<hr style='opacity:0.2;'>", unsafe_allow_html=True)
+
 
 
 
