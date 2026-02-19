@@ -80,7 +80,7 @@ TABLE_CSS = """
 }
 .dk-fav {
     font-weight: 600;
-    background-color: rgba(255,255,255,0.12);
+    background-color: rgba(220,220,220,0.12);
     border-radius: 8px;
     padding: 2px 8px;
 }
@@ -455,6 +455,7 @@ for tab, segment in zip(tabs, SEGMENTS):
                     )
 
             st.markdown("<hr style='opacity:0.2;'>", unsafe_allow_html=True)
+
 
 
 
