@@ -113,7 +113,7 @@ if PREVIEW_COLOR_COLUMNS:
         """
         <style>
         .dk-table th:nth-child(2), .dk-table td:nth-child(2) { color: #E95A3F; }
-        .dk-table th:nth-child(3), .dk-table td:nth-child(3) { color: #3E74C7; }
+        .dk-table th:nth-child(3), .dk-table td:nth-child(3) { color: #4C8DEB; }
         .dk-table th:nth-child(4), .dk-table td:nth-child(4) { color: #49C2B1; }
         </style>
         """,
@@ -455,6 +455,7 @@ for tab, segment in zip(tabs, SEGMENTS):
                     )
 
             st.markdown("<hr style='opacity:0.2;'>", unsafe_allow_html=True)
+
 
 
 
