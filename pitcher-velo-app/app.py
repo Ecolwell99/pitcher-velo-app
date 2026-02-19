@@ -109,6 +109,7 @@ a.dk-link:hover {
 """
 st.markdown(TABLE_CSS, unsafe_allow_html=True)
 
+
 # =============================
 # Helpers
 # =============================
@@ -191,17 +192,6 @@ def get_current_team(df):
     return None
 
 
-def count_state_label(count):
-    balls, strikes = map(int, count.split("-"))
-    if balls == 3 and strikes == 2:
-        return "Full"
-    if balls > strikes:
-        return "Hitter"
-    if strikes > balls:
-        return "Pitcher"
-    return "Even"
-
-
 FASTBALLS = {"FF", "SI", "FC"}
 BREAKING = {"SL", "CU", "KC", "SV", "ST"}
 OFFSPEED = {"CH", "FS", "FO"}
@@ -255,26 +245,28 @@ def build_structure_flags(df, side):
 
     flags = []
     if e := most_common(early):
-        flags.append(f"� Early Counts: {e}")
+        flags.append(f"- Early Counts: {e}")
     if t := most_common(two):
-        flags.append(f"� 2-Strike: {t}")
+        flags.append(f"- 2-Strike: {t}")
     if f := most_common(full):
-        flags.append(f"� Full Count: {f}")
+        flags.append(f"- Full Count: {f}")
     return flags
 
 
 # =============================
 # Pitch Table
 # =============================
-def build_pitch_table(df, side, min_pitches_per_count, anchor_count, show_anchor_only):
+def build_pitch_table(df, side):
     rows = []
     for count, g in df[df["stand"] == side].groupby("count"):
         g = g.dropna(subset=["release_speed", "pitch_type"])
         if g.empty:
             continue
+
         total = len(g)
-        if total < min_pitches_per_count:
+        if total < 5:
             continue
+
         summary = (
             g.groupby("pitch_type")
             .agg(n=("pitch_type", "size"), mph_list=("release_speed", list))
@@ -305,7 +297,7 @@ def build_pitch_table(df, side, min_pitches_per_count, anchor_count, show_anchor
                 dominant_pct[group] = pct
                 dominant_velos[group] = velocities
 
-        row_data = {"Count": count, "State": count_state_label(count)}
+        row_data = {"Count": count}
 
         for group in ["Fastball", "Breaking", "Offspeed"]:
             if group_totals[group] > 0 and dominant_velos[group] is not None:
@@ -320,7 +312,7 @@ def build_pitch_table(df, side, min_pitches_per_count, anchor_count, show_anchor
                     high = int(round(mean + 1))
                 row_data[group] = f"{pct}% ({low}-{high})"
             else:
-                row_data[group] = "�"
+                row_data[group] = "-"
 
         sorted_groups = sorted(group_totals.items(), key=lambda x: x[1], reverse=True)
         if len(sorted_groups) > 1:
@@ -335,17 +327,7 @@ def build_pitch_table(df, side, min_pitches_per_count, anchor_count, show_anchor
         return out
 
     out["count_rank"] = out["Count"].map(COUNT_ORDER_MAP).fillna(999)
-    out = out.sort_values("count_rank")
-
-    if show_anchor_only:
-        out = out[out["Count"] == anchor_count]
-    elif anchor_count in out["Count"].values:
-        out = pd.concat(
-            [out[out["Count"] == anchor_count], out[out["Count"] != anchor_count]],
-            ignore_index=True,
-        )
-
-    return out.drop(columns=["count_rank"]).reset_index(drop=True)
+    return out.sort_values("count_rank").drop(columns=["count_rank"]).reset_index(drop=True)
 
 
 # =============================
@@ -370,16 +352,6 @@ with c2:
     home = st.text_input("Home Pitcher (First Last)")
 with c3:
     season = st.selectbox("Season", [2025, 2026], index=0)
-
-c4, c5, c6 = st.columns([2, 2, 2])
-with c4:
-    min_pitches_per_count = st.number_input(
-        "Min pitches / count", min_value=1, max_value=100, value=5, step=1
-    )
-with c5:
-    anchor_count = st.selectbox("Anchor count", COUNT_ORDER, index=0)
-with c6:
-    show_anchor_only = st.checkbox("Show anchor only", value=False)
 
 if st.button("Run Matchup", use_container_width=True):
     pass
@@ -434,11 +406,11 @@ for tab, segment in zip(tabs, SEGMENTS):
                     unsafe_allow_html=True,
                 )
 
-            hand_display = f"{hand} � " if hand else ""
+            hand_display = f"{hand} | " if hand else ""
             team_display = team if team else "-"
 
             st.markdown(
-                f"<div class='dk-subtitle'>{team_display} � {hand_display}{segment} � {season}</div>",
+                f"<div class='dk-subtitle'>{team_display} | {hand_display}{segment} | {season}</div>",
                 unsafe_allow_html=True,
             )
 
@@ -464,13 +436,7 @@ for tab, segment in zip(tabs, SEGMENTS):
                         unsafe_allow_html=True,
                     )
 
-                table = build_pitch_table(
-                    segment_df,
-                    side,
-                    min_pitches_per_count=min_pitches_per_count,
-                    anchor_count=anchor_count,
-                    show_anchor_only=show_anchor_only,
-                )
+                table = build_pitch_table(segment_df, side)
 
                 if table.empty:
                     st.markdown("<div class='dk-mix'>No rows for current filters.</div>", unsafe_allow_html=True)
@@ -481,4 +447,3 @@ for tab, segment in zip(tabs, SEGMENTS):
                     )
 
             st.markdown("<hr style='opacity:0.2;'>", unsafe_allow_html=True)
-
