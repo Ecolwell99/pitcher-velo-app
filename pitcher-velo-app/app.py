@@ -80,7 +80,7 @@ TABLE_CSS = """
 }
 .dk-fav {
     font-weight: 600;
-    background-color: rgba(230,230,230,0.12);
+    background-color: rgba(255,255,255,0.12);
     border-radius: 8px;
     padding: 2px 8px;
 }
@@ -112,9 +112,9 @@ if PREVIEW_COLOR_COLUMNS:
     st.markdown(
         """
         <style>
-        .dk-table th:nth-child(2), .dk-table td:nth-child(2) { color: #5aa2ff; }
-        .dk-table th:nth-child(3), .dk-table td:nth-child(3) { color: #b084ff; }
-        .dk-table th:nth-child(4), .dk-table td:nth-child(4) { color: #35c9c8; }
+        .dk-table th:nth-child(2), .dk-table td:nth-child(2) { color: #C23B22; }
+        .dk-table th:nth-child(3), .dk-table td:nth-child(3) { color: #1F4E8C; }
+        .dk-table th:nth-child(4), .dk-table td:nth-child(4) { color: #2F8F83; }
         </style>
         """,
         unsafe_allow_html=True,
