@@ -378,9 +378,6 @@ home_hand = get_hand_from_statcast(home_df_full)
 away_splits = split_segments(away_df_full)
 home_splits = split_segments(home_df_full)
 
-if st.button("Refresh cache"):
-    load_pitcher_data.clear()
-    st.cache_data.clear()
 
 tabs = st.tabs(SEGMENTS)
 
