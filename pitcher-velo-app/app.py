@@ -112,9 +112,9 @@ if PREVIEW_COLOR_COLUMNS:
     st.markdown(
         """
         <style>
-        .dk-table th:nth-child(2), .dk-table td:nth-child(2) { color: #C23B22; }
-        .dk-table th:nth-child(3), .dk-table td:nth-child(3) { color: #1F4E8C; }
-        .dk-table th:nth-child(4), .dk-table td:nth-child(4) { color: #2F8F83; }
+        .dk-table th:nth-child(2), .dk-table td:nth-child(2) { color: #E95A3F; }
+        .dk-table th:nth-child(3), .dk-table td:nth-child(3) { color: #3E74C7; }
+        .dk-table th:nth-child(4), .dk-table td:nth-child(4) { color: #49C2B1; }
         </style>
         """,
         unsafe_allow_html=True,
@@ -455,6 +455,7 @@ for tab, segment in zip(tabs, SEGMENTS):
                     )
 
             st.markdown("<hr style='opacity:0.2;'>", unsafe_allow_html=True)
+
 
 
 
