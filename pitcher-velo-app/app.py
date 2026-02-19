@@ -27,7 +27,7 @@ COUNT_ORDER = [
 ]
 COUNT_ORDER_MAP = {c: i for i, c in enumerate(COUNT_ORDER)}
 SEGMENTS = ["All", "Early (1-2)", "Middle (3-4)", "Late (5+)"]
-
+PREVIEW_COLOR_COLUMNS = True  # Set to False to revert to neutral columns
 # =============================
 # Page setup
 # =============================
@@ -108,6 +108,17 @@ a.dk-link:hover {
 </style>
 """
 st.markdown(TABLE_CSS, unsafe_allow_html=True)
+if PREVIEW_COLOR_COLUMNS:
+    st.markdown(
+        """
+        <style>
+        .dk-table th:nth-child(2), .dk-table td:nth-child(2) { color: #ff6b6b; }
+        .dk-table th:nth-child(3), .dk-table td:nth-child(3) { color: #6fe08a; }
+        .dk-table th:nth-child(4), .dk-table td:nth-child(4) { color: #6fb7ff; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 # =============================
@@ -444,4 +455,6 @@ for tab, segment in zip(tabs, SEGMENTS):
                     )
 
             st.markdown("<hr style='opacity:0.2;'>", unsafe_allow_html=True)
+
+
 
