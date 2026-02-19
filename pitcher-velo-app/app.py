@@ -13,16 +13,16 @@ from data import get_pitcher_data
 # =============================
 COUNT_ORDER = [
     "0-0",
-    "1-0",
     "0-1",
-    "2-0",
-    "1-1",
     "0-2",
-    "3-0",
-    "2-1",
+    "1-0",
+    "1-1",
     "1-2",
-    "3-1",
+    "2-0",
+    "2-1",
     "2-2",
+    "3-0",
+    "3-1",
     "3-2",
 ]
 COUNT_ORDER_MAP = {c: i for i, c in enumerate(COUNT_ORDER)}
@@ -444,3 +444,4 @@ for tab, segment in zip(tabs, SEGMENTS):
                     )
 
             st.markdown("<hr style='opacity:0.2;'>", unsafe_allow_html=True)
+
