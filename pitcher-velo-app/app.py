@@ -62,7 +62,7 @@ TABLE_CSS = """
     --dk-radius-sm: 8px;
     --dk-radius-md: 12px;
     --dk-fastball: #F06A46;
-    --dk-breaking: #4A86FF;
+    --dk-breaking: #5A92FF;
     --dk-offspeed: #977AFF;
 }
 
@@ -539,6 +539,7 @@ for tab, segment in zip(tabs, SEGMENTS):
                         table.to_html(index=False, classes="dk-table", escape=False),
                         unsafe_allow_html=True,
                     )
+
 
 
 
