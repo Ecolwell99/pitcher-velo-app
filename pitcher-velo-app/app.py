@@ -109,6 +109,9 @@ a.dk-link:hover {
 </style>
 """
 st.markdown(TABLE_CSS, unsafe_allow_html=True)
+with st.sidebar:
+    st.header("Display")
+    color_columns = st.checkbox("Color columns", value=DEFAULT_COLOR_COLUMNS)
 # =============================
 # Helpers
 # =============================
@@ -344,15 +347,13 @@ def split_segments(df):
 # =============================
 # Controls
 # =============================
-c1, c2, c3, c4 = st.columns([3, 3, 2, 2])
+c1, c2, c3 = st.columns([3, 3, 2])
 with c1:
     away = st.text_input("Away Pitcher (First Last)")
 with c2:
     home = st.text_input("Home Pitcher (First Last)")
 with c3:
     season = st.selectbox("Season", [2025, 2026], index=0)
-with c4:
-    color_columns = st.checkbox("Color columns", value=DEFAULT_COLOR_COLUMNS)
 
 
 if color_columns:
@@ -457,6 +458,7 @@ for tab, segment in zip(tabs, SEGMENTS):
                     )
 
             st.markdown("<hr style='opacity:0.2;'>", unsafe_allow_html=True)
+
 
 
 
