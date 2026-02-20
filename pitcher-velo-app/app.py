@@ -61,17 +61,9 @@ TABLE_CSS = """
     --dk-pill-border: rgba(128,128,128,0.68);
     --dk-radius-sm: 8px;
     --dk-radius-md: 12px;
-    --dk-fastball: #D94A2F;
-    --dk-breaking: #2E6FD8;
-    --dk-offspeed: #1F8F81;
-}
-
-html[data-theme="dark"],
-[data-theme="dark"],
-.stApp[data-theme="dark"] {
-    --dk-fastball: #FF9A82;
-    --dk-breaking: #9BD0FF;
-    --dk-offspeed: #8AE6D8;
+    --dk-fastball: #E85D3A;
+    --dk-breaking: #3E7FE0;
+    --dk-offspeed: #2AA796;
 }
 
 html, body, [class*="css"], .stApp {
@@ -547,6 +539,8 @@ for tab, segment in zip(tabs, SEGMENTS):
                         table.to_html(index=False, classes="dk-table", escape=False),
                         unsafe_allow_html=True,
                     )
+
+
 
 
 
