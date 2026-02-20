@@ -81,7 +81,7 @@ TABLE_CSS = """
 .dk-fav {
     font-weight: 600;
     background-color: transparent;
-    border: 1px solid rgba(255,255,255,0.24);
+    border: 1.5px solid rgba(255,255,255,0.24);
     border-radius: 8px;
     padding: 2px 8px;
 }
