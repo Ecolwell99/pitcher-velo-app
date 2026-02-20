@@ -51,21 +51,10 @@ st.markdown(
 TABLE_CSS = """
 <style>
 :root {
-    --dk-text: #0f172a;
-    --dk-border: rgba(15,23,42,0.20);
-    --dk-header-bg: rgba(15,23,42,0.08);
-    --dk-row-alt: rgba(15,23,42,0.04);
-    --dk-pill-border: rgba(15,23,42,0.28);
-}
-
-html[data-theme="dark"],
-[data-theme="dark"],
-.stApp[data-theme="dark"] {
-    --dk-text: #f8fafc;
-    --dk-border: rgba(255,255,255,0.10);
-    --dk-header-bg: rgba(255,255,255,0.08);
-    --dk-row-alt: rgba(255,255,255,0.04);
-    --dk-pill-border: rgba(255,255,255,0.24);
+    --dk-border: rgba(128,128,128,0.35);
+    --dk-header-bg: rgba(128,128,128,0.18);
+    --dk-row-alt: rgba(128,128,128,0.10);
+    --dk-pill-border: rgba(128,128,128,0.60);
 }
 
 .dk-table {
@@ -476,6 +465,7 @@ for tab, segment in zip(tabs, SEGMENTS):
                     )
 
             st.markdown("<hr style='opacity:0.2;'>", unsafe_allow_html=True)
+
 
 
 
