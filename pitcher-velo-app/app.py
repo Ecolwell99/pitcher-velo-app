@@ -431,9 +431,9 @@ if color_columns:
     st.markdown(
         """
         <style>
-        .dk-table th:nth-child(2), .dk-table td:nth-child(2) { color: #E4572E; }
-        .dk-table th:nth-child(3), .dk-table td:nth-child(3) { color: #2E6FD8; }
-        .dk-table th:nth-child(4), .dk-table td:nth-child(4) { color: #1F9A8A; }
+        .dk-table th:nth-child(2), .dk-table td:nth-child(2) { color: #FF6B4A; }
+        .dk-table th:nth-child(3), .dk-table td:nth-child(3) { color: #5AA2FF; }
+        .dk-table th:nth-child(4), .dk-table td:nth-child(4) { color: #49C2B1; }
         </style>
         """,
         unsafe_allow_html=True,
@@ -536,6 +536,7 @@ for tab, segment in zip(tabs, SEGMENTS):
                         table.to_html(index=False, classes="dk-table", escape=False),
                         unsafe_allow_html=True,
                     )
+
 
 
 
