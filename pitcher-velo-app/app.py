@@ -51,67 +51,115 @@ st.markdown(
 TABLE_CSS = """
 <style>
 :root {
-    --dk-border: rgba(128,128,128,0.35);
+    --dk-border: rgba(128,128,128,0.36);
+    --dk-border-soft: rgba(128,128,128,0.24);
     --dk-header-bg: rgba(128,128,128,0.18);
     --dk-row-alt: rgba(128,128,128,0.10);
-    --dk-pill-border: rgba(128,128,128,0.60);
+    --dk-row-hover: rgba(128,128,128,0.15);
+    --dk-pill-border: rgba(128,128,128,0.68);
+    --dk-radius-sm: 8px;
+    --dk-radius-md: 12px;
+}
+
+[data-testid="stSidebar"] {
+    border-right: 1px solid var(--dk-border-soft);
+}
+
+[data-testid="stTextInput"] input,
+[data-testid="stSelectbox"] [data-baseweb="select"] > div {
+    border-radius: var(--dk-radius-sm);
+}
+
+[data-testid="stButton"] button {
+    border-radius: var(--dk-radius-sm);
+    border: 1px solid var(--dk-border);
+    font-weight: 600;
+}
+
+[data-testid="stTabs"] [data-baseweb="tab-list"] {
+    gap: 8px;
+}
+
+[data-testid="stTabs"] button[data-baseweb="tab"] {
+    border-radius: var(--dk-radius-sm) var(--dk-radius-sm) 0 0;
 }
 
 .dk-table {
-    width: 640px;
+    width: min(760px, 100%);
     table-layout: fixed;
     border-collapse: collapse;
     font-size: 13px;
+    border-radius: var(--dk-radius-md);
+    overflow: hidden;
 }
-.dk-table th, .dk-table td {
-    padding: 5px 6px;
+
+.dk-table th,
+.dk-table td {
+    padding: 6px 7px;
     border: 1px solid var(--dk-border);
     text-align: center;
 }
+
 .dk-table td {
     color: inherit;
 }
+
 .dk-table th:first-child,
 .dk-table td:first-child {
     text-align: center;
-    width: 60px;
+    width: 66px;
     font-weight: 700;
     color: inherit;
 }
-.dk-table th {
+
+.dk-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
     background: var(--dk-header-bg);
     font-weight: 600;
 }
+
 .dk-table tbody tr:nth-child(even) td {
     background: var(--dk-row-alt);
 }
+
+.dk-table tbody tr:hover td {
+    background: var(--dk-row-hover);
+}
+
 .dk-fav {
     font-weight: 600;
     background-color: transparent;
     border: 1.5px solid var(--dk-pill-border);
-    border-radius: 8px;
+    border-radius: var(--dk-radius-sm);
     padding: 2px 8px;
 }
+
 .dk-subtitle {
-    opacity: 0.6;
+    opacity: 0.75;
     margin-bottom: 12px;
 }
+
 .dk-mix {
     font-size: 12px;
     margin-bottom: 8px;
-    opacity: 0.75;
+    opacity: 0.8;
 }
+
 .dk-flags {
     font-size: 12px;
     margin-bottom: 8px;
     line-height: 1.4;
 }
+
 a.dk-link {
     color: inherit !important;
     text-decoration: none !important;
 }
+
 a.dk-link:hover {
-    opacity: 0.85;
+    opacity: 0.88;
 }
 </style>
 """
@@ -364,7 +412,7 @@ def trigger_run():
 
 c1, c2, c3 = st.columns([3, 3, 2])
 with c1:
-    away = st.text_input("Away Pitcher (First Last)", key="away_input", on_change=trigger_run)
+    away = st.text_input("Away Pitcher (First Last)", key="away_input")
 with c2:
     home = st.text_input("Home Pitcher (First Last)", key="home_input", on_change=trigger_run)
 with c3:
@@ -480,6 +528,12 @@ for tab, segment in zip(tabs, SEGMENTS):
                     )
 
             st.markdown("<hr style='opacity:0.2;'>", unsafe_allow_html=True)
+
+
+
+
+
+
 
 
 
