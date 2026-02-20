@@ -153,6 +153,13 @@ TABLE_CSS = """
     line-height: 1.4;
 }
 
+.dk-card {
+    border: 1px solid var(--dk-border-soft);
+    border-radius: var(--dk-radius-md);
+    padding: 14px 14px 10px;
+    margin: 10px 0 16px;
+    background: rgba(128,128,128,0.03);
+}
 a.dk-link {
     color: inherit !important;
     text-decoration: none !important;
@@ -471,6 +478,8 @@ for tab, segment in zip(tabs, SEGMENTS):
             (away_name, away_team, away_mlbam, away_hand, away_splits[segment]),
             (home_name, home_team, home_mlbam, home_hand, home_splits[segment]),
         ]:
+            st.markdown("<div class='dk-card'>", unsafe_allow_html=True)
+
             if mlbam_id:
                 url = f"https://baseballsavant.mlb.com/savant-player/{int(mlbam_id)}"
                 st.markdown(
@@ -527,7 +536,11 @@ for tab, segment in zip(tabs, SEGMENTS):
                         unsafe_allow_html=True,
                     )
 
-            st.markdown("<hr style='opacity:0.2;'>", unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+
+
+
+
 
 
 
