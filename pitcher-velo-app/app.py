@@ -354,16 +354,20 @@ def split_segments(df):
 # =============================
 # Controls
 # =============================
-with st.form("matchup_form", clear_on_submit=False):
-    c1, c2, c3 = st.columns([3, 3, 2])
-    with c1:
-        away = st.text_input("Away Pitcher (First Last)")
-    with c2:
-        home = st.text_input("Home Pitcher (First Last)")
-    with c3:
-        season = st.selectbox("Season", [2025, 2026], index=0)
+if "run_matchup" not in st.session_state:
+    st.session_state.run_matchup = False
 
-    run_matchup = st.form_submit_button("Run Matchup", use_container_width=True)
+def trigger_run():
+    st.session_state.run_matchup = True
+
+c1, c2, c3 = st.columns([3, 3, 2])
+with c1:
+    away = st.text_input("Away Pitcher (First Last)", key="away_input", on_change=trigger_run)
+with c2:
+    home = st.text_input("Home Pitcher (First Last)", key="home_input", on_change=trigger_run)
+with c3:
+    season = st.selectbox("Season", [2025, 2026], index=0)
+
 if color_columns:
     st.markdown(
         """
@@ -375,9 +379,12 @@ if color_columns:
         """,
         unsafe_allow_html=True,
     )
-if not run_matchup:
-    st.stop()
 
+if st.button("Run Matchup", use_container_width=True):
+    st.session_state.run_matchup = True
+
+if not st.session_state.run_matchup:
+    st.stop()
 try:
     away_f, away_l, away_name, away_mlbam = resolve_pitcher(away, season, "Away")
     home_f, home_l, home_name, home_mlbam = resolve_pitcher(home, season, "Home")
@@ -464,6 +471,7 @@ for tab, segment in zip(tabs, SEGMENTS):
                     )
 
             st.markdown("<hr style='opacity:0.2;'>", unsafe_allow_html=True)
+
 
 
 
