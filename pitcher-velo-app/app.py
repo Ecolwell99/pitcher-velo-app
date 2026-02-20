@@ -69,9 +69,9 @@ TABLE_CSS = """
 html[data-theme="dark"],
 [data-theme="dark"],
 .stApp[data-theme="dark"] {
-    --dk-fastball: #FF6B4A;
-    --dk-breaking: #5AA2FF;
-    --dk-offspeed: #49C2B1;
+    --dk-fastball: #FF7A5C;
+    --dk-breaking: #73B6FF;
+    --dk-offspeed: #60D9C7;
 }
 
 html, body, [class*="css"], .stApp {
@@ -547,6 +547,7 @@ for tab, segment in zip(tabs, SEGMENTS):
                         table.to_html(index=False, classes="dk-table", escape=False),
                         unsafe_allow_html=True,
                     )
+
 
 
 
