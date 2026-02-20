@@ -50,6 +50,22 @@ st.markdown(
 # =============================
 TABLE_CSS = """
 <style>
+:root {
+    --dk-text: #f8fafc;
+    --dk-border: rgba(255,255,255,0.10);
+    --dk-header-bg: rgba(255,255,255,0.08);
+    --dk-row-alt: rgba(255,255,255,0.04);
+    --dk-pill-border: rgba(255,255,255,0.24);
+}
+
+html[data-theme="light"] {
+    --dk-text: #0f172a;
+    --dk-border: rgba(15,23,42,0.20);
+    --dk-header-bg: rgba(15,23,42,0.08);
+    --dk-row-alt: rgba(15,23,42,0.04);
+    --dk-pill-border: rgba(15,23,42,0.28);
+}
+
 .dk-table {
     width: 640px;
     table-layout: fixed;
@@ -58,30 +74,30 @@ TABLE_CSS = """
 }
 .dk-table th, .dk-table td {
     padding: 5px 6px;
-    border: 1px solid rgba(255,255,255,0.08);
+    border: 1px solid var(--dk-border);
     text-align: center;
 }
 .dk-table td {
-    color: #ffffff;
+    color: var(--dk-text);
 }
 .dk-table th:first-child,
 .dk-table td:first-child {
     text-align: center;
     width: 60px;
     font-weight: 700;
-    color: #ffffff;
+    color: var(--dk-text);
 }
 .dk-table th {
-    background: rgba(255,255,255,0.08);
+    background: var(--dk-header-bg);
     font-weight: 600;
 }
 .dk-table tbody tr:nth-child(even) td {
-    background: rgba(255,255,255,0.04);
+    background: var(--dk-row-alt);
 }
 .dk-fav {
     font-weight: 600;
     background-color: transparent;
-    border: 1.5px solid rgba(255,255,255,0.24);
+    border: 1.5px solid var(--dk-pill-border);
     border-radius: 8px;
     padding: 2px 8px;
 }
@@ -458,6 +474,9 @@ for tab, segment in zip(tabs, SEGMENTS):
                     )
 
             st.markdown("<hr style='opacity:0.2;'>", unsafe_allow_html=True)
+
+
+
 
 
 
