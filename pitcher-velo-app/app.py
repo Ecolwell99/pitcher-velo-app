@@ -517,4 +517,3 @@ for tab, segment in zip(tabs, SEGMENTS):
 
 
 
-
