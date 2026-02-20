@@ -68,16 +68,6 @@ html[data-theme="dark"],
     --dk-pill-border: rgba(255,255,255,0.24);
 }
 
-@media (prefers-color-scheme: dark) {
-    :root {
-        --dk-text: #f8fafc;
-        --dk-border: rgba(255,255,255,0.10);
-        --dk-header-bg: rgba(255,255,255,0.08);
-        --dk-row-alt: rgba(255,255,255,0.04);
-        --dk-pill-border: rgba(255,255,255,0.24);
-    }
-}
-
 .dk-table {
     width: 640px;
     table-layout: fixed;
@@ -90,14 +80,14 @@ html[data-theme="dark"],
     text-align: center;
 }
 .dk-table td {
-    color: var(--dk-text);
+    color: inherit;
 }
 .dk-table th:first-child,
 .dk-table td:first-child {
     text-align: center;
     width: 60px;
     font-weight: 700;
-    color: var(--dk-text);
+    color: inherit;
 }
 .dk-table th {
     background: var(--dk-header-bg);
@@ -128,7 +118,7 @@ html[data-theme="dark"],
     line-height: 1.4;
 }
 a.dk-link {
-    color: var(--dk-text) !important;
+    color: inherit !important;
     text-decoration: none !important;
 }
 a.dk-link:hover {
@@ -486,6 +476,8 @@ for tab, segment in zip(tabs, SEGMENTS):
                     )
 
             st.markdown("<hr style='opacity:0.2;'>", unsafe_allow_html=True)
+
+
 
 
 
