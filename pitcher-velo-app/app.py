@@ -61,6 +61,17 @@ TABLE_CSS = """
     --dk-pill-border: rgba(128,128,128,0.68);
     --dk-radius-sm: 8px;
     --dk-radius-md: 12px;
+    --dk-fastball: #D94A2F;
+    --dk-breaking: #2E6FD8;
+    --dk-offspeed: #1F8F81;
+}
+
+html[data-theme="dark"],
+[data-theme="dark"],
+.stApp[data-theme="dark"] {
+    --dk-fastball: #FF6B4A;
+    --dk-breaking: #5AA2FF;
+    --dk-offspeed: #49C2B1;
 }
 
 html, body, [class*="css"], .stApp {
@@ -431,9 +442,9 @@ if color_columns:
     st.markdown(
         """
         <style>
-        .dk-table th:nth-child(2), .dk-table td:nth-child(2) { color: #FF6B4A; }
-        .dk-table th:nth-child(3), .dk-table td:nth-child(3) { color: #5AA2FF; }
-        .dk-table th:nth-child(4), .dk-table td:nth-child(4) { color: #49C2B1; }
+        .dk-table th:nth-child(2), .dk-table td:nth-child(2) { color: var(--dk-fastball); }
+        .dk-table th:nth-child(3), .dk-table td:nth-child(3) { color: var(--dk-breaking); }
+        .dk-table th:nth-child(4), .dk-table td:nth-child(4) { color: var(--dk-offspeed); }
         </style>
         """,
         unsafe_allow_html=True,
@@ -536,6 +547,10 @@ for tab, segment in zip(tabs, SEGMENTS):
                         table.to_html(index=False, classes="dk-table", escape=False),
                         unsafe_allow_html=True,
                     )
+
+
+
+
 
 
 
