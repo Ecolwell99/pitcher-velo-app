@@ -50,7 +50,9 @@ st.markdown(
 # =============================
 TABLE_CSS = """
 <style>
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap");
 :root {
+    --dk-font: "IBM Plex Sans", "Segoe UI", sans-serif;
     --dk-border: rgba(128,128,128,0.36);
     --dk-border-soft: rgba(128,128,128,0.24);
     --dk-header-bg: rgba(128,128,128,0.18);
@@ -59,6 +61,14 @@ TABLE_CSS = """
     --dk-pill-border: rgba(128,128,128,0.68);
     --dk-radius-sm: 8px;
     --dk-radius-md: 12px;
+}
+
+html, body, [class*="css"], .stApp {
+    font-family: var(--dk-font);
+}
+
+.dk-table, .dk-mix, .dk-flags, .dk-subtitle {
+    font-family: var(--dk-font);
 }
 
 [data-testid="stSidebar"] {
@@ -526,6 +536,8 @@ for tab, segment in zip(tabs, SEGMENTS):
                         table.to_html(index=False, classes="dk-table", escape=False),
                         unsafe_allow_html=True,
                     )
+
+
 
 
 
