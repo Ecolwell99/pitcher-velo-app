@@ -62,8 +62,8 @@ TABLE_CSS = """
     --dk-radius-sm: 8px;
     --dk-radius-md: 12px;
     --dk-fastball: #E85D3A;
-    --dk-breaking: #3E7FE0;
-    --dk-offspeed: #2AA796;
+    --dk-breaking: #4A8AEC;
+    --dk-offspeed: #35B3A2;
 }
 
 html, body, [class*="css"], .stApp {
@@ -539,6 +539,7 @@ for tab, segment in zip(tabs, SEGMENTS):
                         table.to_html(index=False, classes="dk-table", escape=False),
                         unsafe_allow_html=True,
                     )
+
 
 
 
