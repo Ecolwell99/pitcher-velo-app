@@ -358,7 +358,9 @@ if "run_matchup" not in st.session_state:
     st.session_state.run_matchup = False
 
 def trigger_run():
-    st.session_state.run_matchup = True
+    away_val = st.session_state.get("away_input", "").strip()
+    home_val = st.session_state.get("home_input", "").strip()
+    st.session_state.run_matchup = bool(away_val and home_val)
 
 c1, c2, c3 = st.columns([3, 3, 2])
 with c1:
@@ -385,6 +387,13 @@ if st.button("Run Matchup", use_container_width=True):
 
 if not st.session_state.run_matchup:
     st.stop()
+
+away = away.strip()
+home = home.strip()
+if not away or not home:
+    st.info("Enter both away and home pitchers, then press Enter or Run Matchup.")
+    st.stop()
+
 try:
     away_f, away_l, away_name, away_mlbam = resolve_pitcher(away, season, "Away")
     home_f, home_l, home_name, home_mlbam = resolve_pitcher(home, season, "Home")
@@ -471,6 +480,10 @@ for tab, segment in zip(tabs, SEGMENTS):
                     )
 
             st.markdown("<hr style='opacity:0.2;'>", unsafe_allow_html=True)
+
+
+
+
 
 
 
