@@ -50,57 +50,116 @@ st.markdown(
 # =============================
 TABLE_CSS = """
 <style>
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap");
 :root {
-    --dk-border: rgba(128,128,128,0.35);
+    --dk-font: "IBM Plex Sans", "Segoe UI", sans-serif;
+    --dk-border: rgba(128,128,128,0.36);
+    --dk-border-soft: rgba(128,128,128,0.24);
     --dk-header-bg: rgba(128,128,128,0.18);
     --dk-row-alt: rgba(128,128,128,0.10);
-    --dk-pill-border: rgba(128,128,128,0.60);
+    --dk-row-hover: rgba(128,128,128,0.15);
+    --dk-pill-border: rgba(128,128,128,0.68);
+    --dk-radius-sm: 8px;
+    --dk-radius-md: 12px;
+    --dk-fastball: #F06A46;
+    --dk-breaking: #5A92FF;
+    --dk-offspeed: #977AFF;
+}
+
+html, body, [class*="css"], .stApp {
+    font-family: var(--dk-font);
+}
+
+.dk-table, .dk-mix, .dk-flags, .dk-subtitle {
+    font-family: var(--dk-font);
+}
+
+[data-testid="stSidebar"] {
+    border-right: 1px solid var(--dk-border-soft);
+}
+
+[data-testid="stTextInput"] input,
+[data-testid="stSelectbox"] [data-baseweb="select"] > div {
+    border-radius: var(--dk-radius-sm);
+}
+
+[data-testid="stButton"] button {
+    border-radius: var(--dk-radius-sm);
+    border: 1px solid var(--dk-border);
+    font-weight: 600;
+}
+
+[data-testid="stTabs"] [data-baseweb="tab-list"] {
+    gap: 8px;
+}
+
+[data-testid="stTabs"] button[data-baseweb="tab"] {
+    border-radius: var(--dk-radius-sm) var(--dk-radius-sm) 0 0;
 }
 
 .dk-table {
-    width: 640px;
+    width: min(760px, 100%);
     table-layout: fixed;
     border-collapse: collapse;
     font-size: 13px;
+    border-radius: var(--dk-radius-md);
+    overflow: hidden;
 }
-.dk-table th, .dk-table td {
-    padding: 5px 6px;
+
+.dk-table th,
+.dk-table td {
+    padding: 6px 7px;
     border: 1px solid var(--dk-border);
     text-align: center;
 }
+
 .dk-table td {
     color: inherit;
 }
+
 .dk-table th:first-child,
 .dk-table td:first-child {
     text-align: center;
-    width: 60px;
+    width: 66px;
     font-weight: 700;
     color: inherit;
 }
-.dk-table th {
+
+.dk-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
     background: var(--dk-header-bg);
     font-weight: 600;
 }
+
 .dk-table tbody tr:nth-child(even) td {
     background: var(--dk-row-alt);
 }
+
+.dk-table tbody tr:hover td {
+    background: var(--dk-row-hover);
+}
+
 .dk-fav {
     font-weight: 600;
     background-color: transparent;
     border: 1.5px solid var(--dk-pill-border);
-    border-radius: 8px;
+    border-radius: var(--dk-radius-sm);
     padding: 2px 8px;
 }
+
 .dk-subtitle {
-    opacity: 0.6;
+    opacity: 0.75;
     margin-bottom: 12px;
 }
+
 .dk-mix {
     font-size: 12px;
     margin-bottom: 8px;
-    opacity: 0.75;
+    opacity: 0.8;
 }
+
 .dk-flags {
     font-size: 12px;
     margin-bottom: 8px;
@@ -110,8 +169,9 @@ a.dk-link {
     color: inherit !important;
     text-decoration: none !important;
 }
+
 a.dk-link:hover {
-    opacity: 0.85;
+    opacity: 0.88;
 }
 </style>
 """
@@ -354,29 +414,44 @@ def split_segments(df):
 # =============================
 # Controls
 # =============================
+if "run_matchup" not in st.session_state:
+    st.session_state.run_matchup = False
+
+def trigger_run():
+    away_val = st.session_state.get("away_input", "").strip()
+    home_val = st.session_state.get("home_input", "").strip()
+    st.session_state.run_matchup = bool(away_val and home_val)
+
 c1, c2, c3 = st.columns([3, 3, 2])
 with c1:
-    away = st.text_input("Away Pitcher (First Last)")
+    away = st.text_input("Away Pitcher (First Last)", key="away_input")
 with c2:
-    home = st.text_input("Home Pitcher (First Last)")
+    home = st.text_input("Home Pitcher (First Last)", key="home_input", on_change=trigger_run)
 with c3:
     season = st.selectbox("Season", [2025, 2026], index=0)
-
 
 if color_columns:
     st.markdown(
         """
         <style>
-        .dk-table th:nth-child(2), .dk-table td:nth-child(2) { color: #DC2626; }
-        .dk-table th:nth-child(3), .dk-table td:nth-child(3) { color: #3A9CFF; }
-        .dk-table th:nth-child(4), .dk-table td:nth-child(4) { color: #00A99D; }
+        .dk-table th:nth-child(2), .dk-table td:nth-child(2) { color: var(--dk-fastball); font-weight: 600; }
+        .dk-table th:nth-child(3), .dk-table td:nth-child(3) { color: var(--dk-breaking); font-weight: 600; }
+        .dk-table th:nth-child(4), .dk-table td:nth-child(4) { color: var(--dk-offspeed); font-weight: 600; }
         </style>
         """,
         unsafe_allow_html=True,
     )
+
 if st.button("Run Matchup", use_container_width=True):
-    pass
-else:
+    st.session_state.run_matchup = True
+
+if not st.session_state.run_matchup:
+    st.stop()
+
+away = away.strip()
+home = home.strip()
+if not away or not home:
+    st.info("Enter both away and home pitchers, then press Enter or Run Matchup.")
     st.stop()
 
 try:
@@ -408,6 +483,7 @@ for tab, segment in zip(tabs, SEGMENTS):
             (away_name, away_team, away_mlbam, away_hand, away_splits[segment]),
             (home_name, home_team, home_mlbam, home_hand, home_splits[segment]),
         ]:
+
             if mlbam_id:
                 url = f"https://baseballsavant.mlb.com/savant-player/{int(mlbam_id)}"
                 st.markdown(
@@ -464,7 +540,47 @@ for tab, segment in zip(tabs, SEGMENTS):
                         unsafe_allow_html=True,
                     )
 
-            st.markdown("<hr style='opacity:0.2;'>", unsafe_allow_html=True)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
