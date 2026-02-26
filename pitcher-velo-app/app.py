@@ -169,8 +169,8 @@ html, body, [class*="css"], .stApp {
     display: inline-block;
     margin-top: 12px;
     margin-bottom: 6px;
-    padding: 4px 10px;
-    font-size: 13px;
+    padding: 8px 20px;
+    font-size: 26px;
     font-weight: 700;
     letter-spacing: 0.02em;
     border: 1px solid var(--dk-border-soft);
