@@ -427,6 +427,88 @@ def build_team_profile_table(team_df, pitcher_hand):
     return pd.DataFrame(rows)
 
 
+def build_pitcher_group_weights(pitcher_df):
+    if pitcher_df is None or pitcher_df.empty or "pitch_type" not in pitcher_df.columns:
+        return {}
+
+    g = pitcher_df.copy()
+    g["pitch_group"] = g["pitch_type"].apply(pitch_group_from_type)
+    g = g[g["pitch_group"].notna()]
+    if g.empty:
+        return {}
+
+    counts = g["pitch_group"].value_counts()
+    total = counts.sum()
+    return {k: v / total for k, v in counts.items()}
+
+
+def build_top_risk_hitters(team_df, pitcher_hand, group_weights, top_n=3):
+    if team_df is None or team_df.empty:
+        return pd.DataFrame()
+    if not group_weights:
+        return pd.DataFrame()
+
+    g = team_df.copy()
+    hand = (pitcher_hand or "").upper()[:1]
+    if hand in {"R", "L"} and "p_throws" in g.columns:
+        g = g[g["p_throws"].astype(str).str.upper() == hand]
+
+    if g.empty or "pitch_type" not in g.columns:
+        return pd.DataFrame()
+
+    g["pitch_group"] = g["pitch_type"].apply(pitch_group_from_type)
+    g = g[g["pitch_group"].notna()].copy()
+    if g.empty:
+        return pd.DataFrame()
+
+    name_col = "player_name" if "player_name" in g.columns else ("batter" if "batter" in g.columns else None)
+    if name_col is None:
+        return pd.DataFrame()
+
+    g = g[g["estimated_woba_using_speedangle"].notna()].copy()
+    if g.empty:
+        return pd.DataFrame()
+
+    grp = (
+        g.groupby([name_col, "pitch_group"])
+        .agg(
+            xwoba=("estimated_woba_using_speedangle", "mean"),
+            n=("pitch_group", "size"),
+        )
+        .reset_index()
+    )
+
+    rows = []
+    for hitter, h in grp.groupby(name_col):
+        score = 0.0
+        covered_weight = 0.0
+        total_pitches = int(h["n"].sum())
+        for _, r in h.iterrows():
+            w = group_weights.get(r["pitch_group"], 0.0)
+            if w <= 0:
+                continue
+            score += w * float(r["xwoba"])
+            covered_weight += w
+
+        if covered_weight == 0:
+            continue
+        if covered_weight < 1.0:
+            score += (1.0 - covered_weight) * 0.320
+
+        rows.append(
+            {
+                "Hitter": str(hitter),
+                "Risk xwOBA": round(score, 3),
+                "Pitches Seen": total_pitches,
+            }
+        )
+
+    out = pd.DataFrame(rows)
+    if out.empty:
+        return out
+    return out.sort_values(["Risk xwOBA", "Pitches Seen"], ascending=[False, False]).head(top_n).reset_index(drop=True)
+
+
 # =============================
 # Pitch Table
 # =============================
@@ -586,9 +668,9 @@ tabs = st.tabs(SEGMENTS)
 
 for tab, segment in zip(tabs, SEGMENTS):
     with tab:
-        for name, team, mlbam_id, hand, segment_df, opp_team, opp_profile_df in [
-            (away_name, away_team, away_mlbam, away_hand, away_splits[segment], home_team, away_opp_profile_df),
-            (home_name, home_team, home_mlbam, home_hand, home_splits[segment], away_team, home_opp_profile_df),
+        for name, team, mlbam_id, hand, segment_df, full_df, opp_team, opp_profile_df in [
+            (away_name, away_team, away_mlbam, away_hand, away_splits[segment], away_df_full, home_team, away_opp_profile_df),
+            (home_name, home_team, home_mlbam, home_hand, home_splits[segment], home_df_full, away_team, home_opp_profile_df),
         ]:
 
             if mlbam_id:
@@ -615,20 +697,21 @@ for tab, segment in zip(tabs, SEGMENTS):
                 unsafe_allow_html=True,
             )
 
-            profile_table = build_team_profile_table(opp_profile_df, hand)
+            pitch_weights = build_pitcher_group_weights(full_df)
+            risk_table = build_top_risk_hitters(opp_profile_df, hand, pitch_weights, top_n=3)
             opp_label = opp_team if opp_team else "Opponent"
             st.markdown(
-                f"<div class='dk-profile-title'>{opp_label} Hitting Profile vs {hand or 'P'}</div>",
+                f"<div class='dk-profile-title'>Top 3 Risk Hitters ({opp_label} vs {hand or 'P'})</div>",
                 unsafe_allow_html=True,
             )
-            if not profile_table.empty:
+            if not risk_table.empty:
                 st.markdown(
-                    profile_table.to_html(index=False, classes="dk-mini-table", escape=False),
+                    risk_table.to_html(index=False, classes="dk-mini-table", escape=False),
                     unsafe_allow_html=True,
                 )
             else:
                 st.markdown(
-                    "<div class='dk-mix'>No opponent profile data for current team/season.</div>",
+                    "<div class='dk-mix'>No hitter risk data for current team/season.</div>",
                     unsafe_allow_html=True,
                 )
 
