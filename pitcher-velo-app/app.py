@@ -6,7 +6,7 @@ import pandas as pd
 import streamlit as st
 from pybaseball import chadwick_register
 
-from data import get_pitcher_data, get_team_hitting_data
+from data import get_pitcher_data
 
 # =============================
 # Constants
@@ -177,29 +177,6 @@ html, body, [class*="css"], .stApp {
     border-radius: 999px;
     background: var(--dk-header-bg);
 }
-.dk-profile-title {
-    font-size: 12px;
-    font-weight: 700;
-    opacity: 0.8;
-    margin-top: 4px;
-    margin-bottom: 6px;
-}
-.dk-mini-table {
-    width: min(520px, 100%);
-    table-layout: fixed;
-    border-collapse: collapse;
-    font-size: 12px;
-    margin-bottom: 10px;
-}
-.dk-mini-table th, .dk-mini-table td {
-    padding: 4px 6px;
-    border: 1px solid var(--dk-border);
-    text-align: center;
-}
-.dk-mini-table th {
-    background: var(--dk-header-bg);
-    font-weight: 600;
-}
 a.dk-link {
     color: inherit !important;
     text-decoration: none !important;
@@ -299,17 +276,6 @@ def get_current_team(df):
 FASTBALLS = {"FF", "SI", "FC"}
 BREAKING = {"SL", "CU", "KC", "SV", "ST"}
 OFFSPEED = {"CH", "FS", "FO"}
-SWING_EVENTS = {
-    "swinging_strike",
-    "swinging_strike_blocked",
-    "foul",
-    "foul_tip",
-    "hit_into_play",
-    "hit_into_play_no_out",
-    "hit_into_play_score",
-}
-WHIFF_EVENTS = {"swinging_strike", "swinging_strike_blocked"}
-PITCH_GROUP_ORDER = ["Fastball", "Breaking", "Offspeed"]
 
 
 # =============================
@@ -366,147 +332,6 @@ def build_structure_flags(df, side):
     if f := most_common(full):
         flags.append(f"- Full Count: {f}")
     return flags
-
-
-def pitch_group_from_type(pt):
-    if pt in FASTBALLS:
-        return "Fastball"
-    if pt in BREAKING:
-        return "Breaking"
-    if pt in OFFSPEED:
-        return "Offspeed"
-    return None
-
-
-def build_team_profile_table(team_df, pitcher_hand):
-    if team_df is None or team_df.empty:
-        return pd.DataFrame()
-
-    g = team_df.copy()
-    hand = (pitcher_hand or "").upper()[:1]
-    if hand in {"R", "L"} and "p_throws" in g.columns:
-        g = g[g["p_throws"].astype(str).str.upper() == hand]
-
-    if g.empty or "pitch_type" not in g.columns:
-        return pd.DataFrame()
-
-    g["pitch_group"] = g["pitch_type"].apply(pitch_group_from_type)
-    g = g[g["pitch_group"].notna()].copy()
-    if g.empty:
-        return pd.DataFrame()
-
-    pitches = g.groupby("pitch_group").size()
-    total = int(pitches.sum())
-    if total == 0:
-        return pd.DataFrame()
-
-    swings = g[g["description"].isin(SWING_EVENTS)].groupby("pitch_group").size()
-    whiffs = g[g["description"].isin(WHIFF_EVENTS)].groupby("pitch_group").size()
-    xwoba = g.groupby("pitch_group")["estimated_woba_using_speedangle"].mean()
-
-    rows = []
-    for grp in PITCH_GROUP_ORDER:
-        n = int(pitches.get(grp, 0))
-        if n == 0:
-            continue
-        share = n / total * 100
-        sw = int(swings.get(grp, 0))
-        wh = int(whiffs.get(grp, 0))
-        whiff_pct = (wh / sw * 100) if sw > 0 else np.nan
-        xw = xwoba.get(grp, np.nan)
-        rows.append(
-            {
-                "Pitch Group": grp,
-                "Share": f"{share:.0f}%",
-                "Whiff%": "-" if pd.isna(whiff_pct) else f"{whiff_pct:.0f}%",
-                "xwOBA": "-" if pd.isna(xw) else f"{xw:.3f}",
-                "N": n,
-            }
-        )
-
-    return pd.DataFrame(rows)
-
-
-def build_pitcher_group_weights(pitcher_df):
-    if pitcher_df is None or pitcher_df.empty or "pitch_type" not in pitcher_df.columns:
-        return {}
-
-    g = pitcher_df.copy()
-    g["pitch_group"] = g["pitch_type"].apply(pitch_group_from_type)
-    g = g[g["pitch_group"].notna()]
-    if g.empty:
-        return {}
-
-    counts = g["pitch_group"].value_counts()
-    total = counts.sum()
-    return {k: v / total for k, v in counts.items()}
-
-
-def build_top_risk_hitters(team_df, pitcher_hand, group_weights, top_n=3):
-    if team_df is None or team_df.empty:
-        return pd.DataFrame()
-    if not group_weights:
-        return pd.DataFrame()
-
-    g = team_df.copy()
-    hand = (pitcher_hand or "").upper()[:1]
-    if hand in {"R", "L"} and "p_throws" in g.columns:
-        g = g[g["p_throws"].astype(str).str.upper() == hand]
-
-    if g.empty or "pitch_type" not in g.columns:
-        return pd.DataFrame()
-
-    g["pitch_group"] = g["pitch_type"].apply(pitch_group_from_type)
-    g = g[g["pitch_group"].notna()].copy()
-    if g.empty:
-        return pd.DataFrame()
-
-    name_col = "player_name" if "player_name" in g.columns else ("batter" if "batter" in g.columns else None)
-    if name_col is None:
-        return pd.DataFrame()
-
-    g = g[g["estimated_woba_using_speedangle"].notna()].copy()
-    if g.empty:
-        return pd.DataFrame()
-
-    grp = (
-        g.groupby([name_col, "pitch_group"])
-        .agg(
-            xwoba=("estimated_woba_using_speedangle", "mean"),
-            n=("pitch_group", "size"),
-        )
-        .reset_index()
-    )
-
-    rows = []
-    for hitter, h in grp.groupby(name_col):
-        score = 0.0
-        covered_weight = 0.0
-        total_pitches = int(h["n"].sum())
-        for _, r in h.iterrows():
-            w = group_weights.get(r["pitch_group"], 0.0)
-            if w <= 0:
-                continue
-            score += w * float(r["xwoba"])
-            covered_weight += w
-
-        if covered_weight == 0:
-            continue
-        if covered_weight < 1.0:
-            score += (1.0 - covered_weight) * 0.320
-
-        rows.append(
-            {
-                "Hitter": str(hitter),
-                "Risk xwOBA": round(score, 3),
-                "Pitches Seen": total_pitches,
-            }
-        )
-
-    out = pd.DataFrame(rows)
-    if out.empty:
-        return out
-    return out.sort_values(["Risk xwOBA", "Pitches Seen"], ascending=[False, False]).head(top_n).reset_index(drop=True)
 
 
 # =============================
@@ -660,17 +485,15 @@ home_hand = get_hand_from_statcast(home_df_full)
 
 away_splits = split_segments(away_df_full)
 home_splits = split_segments(home_df_full)
-away_opp_profile_df = get_team_hitting_data(home_team, season) if home_team else pd.DataFrame()
-home_opp_profile_df = get_team_hitting_data(away_team, season) if away_team else pd.DataFrame()
 
 
 tabs = st.tabs(SEGMENTS)
 
 for tab, segment in zip(tabs, SEGMENTS):
     with tab:
-        for name, team, mlbam_id, hand, segment_df, full_df, opp_team, opp_profile_df in [
-            (away_name, away_team, away_mlbam, away_hand, away_splits[segment], away_df_full, home_team, away_opp_profile_df),
-            (home_name, home_team, home_mlbam, home_hand, home_splits[segment], home_df_full, away_team, home_opp_profile_df),
+        for name, team, mlbam_id, hand, segment_df in [
+            (away_name, away_team, away_mlbam, away_hand, away_splits[segment]),
+            (home_name, home_team, home_mlbam, home_hand, home_splits[segment]),
         ]:
 
             if mlbam_id:
@@ -696,24 +519,6 @@ for tab, segment in zip(tabs, SEGMENTS):
                 f"<div class='dk-subtitle'>{team_display} | {hand_display}{segment} | {season}</div>",
                 unsafe_allow_html=True,
             )
-
-            pitch_weights = build_pitcher_group_weights(full_df)
-            risk_table = build_top_risk_hitters(opp_profile_df, hand, pitch_weights, top_n=3)
-            opp_label = opp_team if opp_team else "Opponent"
-            st.markdown(
-                f"<div class='dk-profile-title'>Top 3 Risk Hitters ({opp_label} vs {hand or 'P'})</div>",
-                unsafe_allow_html=True,
-            )
-            if not risk_table.empty:
-                st.markdown(
-                    risk_table.to_html(index=False, classes="dk-mini-table", escape=False),
-                    unsafe_allow_html=True,
-                )
-            else:
-                st.markdown(
-                    "<div class='dk-mix'>No hitter risk data for current team/season.</div>",
-                    unsafe_allow_html=True,
-                )
 
             for side in ["L", "R"]:
                 label = "vs LHB" if side == "L" else "vs RHB"
