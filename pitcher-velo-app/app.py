@@ -25,7 +25,7 @@ COUNT_ORDER = [
     "3-1",
     "3-2",
 ]
-COUNT_ORDER_MAP = {c: i for i, c in enumerate(COUNT_ORDER)}
+COUNT_ORDER_MAP =A {c: i for i, c in enumerate(COUNT_ORDER)}
 SEGMENTS = ["All", "Early (1-2)", "Middle (3-4)", "Late (5+)"]
 DEFAULT_COLOR_COLUMNS = False  # Default for user toggle
 # =============================
@@ -169,8 +169,8 @@ html, body, [class*="css"], .stApp {
     display: inline-block;
     margin-top: 12px;
     margin-bottom: 6px;
-    padding: 8px 20px;
-    font-size: 26px;
+    padding: 6px 14px;
+    font-size: 18px;
     font-weight: 700;
     letter-spacing: 0.02em;
     border: 1px solid var(--dk-border-soft);
