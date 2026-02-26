@@ -106,6 +106,8 @@ def get_team_hitting_data(team, season):
 
     keep_cols = [
         "bat_team",
+        "player_name",
+        "batter",
         "pitch_type",
         "description",
         "estimated_woba_using_speedangle",
