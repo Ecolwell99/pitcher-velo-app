@@ -25,7 +25,7 @@ COUNT_ORDER = [
     "3-1",
     "3-2",
 ]
-COUNT_ORDER_MAP =A {c: i for i, c in enumerate(COUNT_ORDER)}
+COUNT_ORDER_MAP = {c: i for i, c in enumerate(COUNT_ORDER)}
 SEGMENTS = ["All", "Early (1-2)", "Middle (3-4)", "Late (5+)"]
 DEFAULT_COLOR_COLUMNS = False  # Default for user toggle
 # =============================
