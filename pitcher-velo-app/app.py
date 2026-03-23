@@ -165,6 +165,18 @@ html, body, [class*="css"], .stApp {
     margin-bottom: 8px;
     line-height: 1.4;
 }
+.dk-split-label {
+    display: inline-block;
+    margin-top: 12px;
+    margin-bottom: 6px;
+    padding: 6px 14px;
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    border: 1px solid var(--dk-border-soft);
+    border-radius: 999px;
+    background: var(--dk-header-bg);
+}
 a.dk-link {
     color: inherit !important;
     text-decoration: none !important;
@@ -512,7 +524,7 @@ for tab, segment in zip(tabs, SEGMENTS):
                 label = "vs LHB" if side == "L" else "vs RHB"
 
                 st.markdown(
-                    f"<div style='font-weight:600; font-size:18px; margin-top:10px;'>{label}</div>",
+                    f"<div class='dk-split-label'>{label}</div>",
                     unsafe_allow_html=True,
                 )
 
@@ -539,73 +551,3 @@ for tab, segment in zip(tabs, SEGMENTS):
                         table.to_html(index=False, classes="dk-table", escape=False),
                         unsafe_allow_html=True,
                     )
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
